@@ -1,0 +1,3 @@
+# webfortune
+
+Fortune Web API
