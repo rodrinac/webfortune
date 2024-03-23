@@ -18,14 +18,13 @@ jobs:
           - target: wasm32-wasi
             archive: zip tar.gz
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v3
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           RUSTTARGET: ${{ matrix.target }}
-          EXTRA_FILES: "README.md"
           SRC_DIR: "src"
           ARCHIVE_TYPES: ${{ matrix.archive }}
           MINIFY: "yes"
@@ -37,7 +36,7 @@ jobs:
       matrix:
         target: [x86_64-unknown-linux-musl]
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v3
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.5
         with:
