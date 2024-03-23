@@ -1,8 +1,9 @@
+name: Release
+
 on:
   release:
     types: [created]
   push:
-
 
 jobs:
   release:
@@ -18,7 +19,7 @@ jobs:
           - target: wasm32-wasi
             archive: zip tar.gz
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@master
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.5
         env:
@@ -36,7 +37,7 @@ jobs:
       matrix:
         target: [x86_64-unknown-linux-musl]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@master
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.5
         with:
