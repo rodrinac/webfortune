@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::fs;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::process::{Command, Output};
 
 use hyper::body::Incoming;
@@ -39,7 +39,7 @@ fn get_fortune(category: String) -> Result<String, String> {
         .and_then(|output: Output| String::from_utf8(output.stdout).map_err(|_| "Fail to parse fortune".to_string()))
 }
 
-static FORTUNE_FILES: Lazy<HashSet<String>> = Lazy::new(|| get_fortune_files());
+static FORTUNE_FILES: Lazy<HashSet<String>> = Lazy::new(get_fortune_files);
 
 async fn handle_request(req: Request<Incoming>) -> Result<Response<String>, hyper::http::Error> {
     let path = req.uri().path();
@@ -70,9 +70,17 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<String>, hype
     ok(fortune).await
 }
 
+fn get_host_and_port() -> (IpAddr, u16) {
+    let host = option_env!("MY_APP_HOST").unwrap_or("127.0.0.1");
+    let port = option_env!("MY_APP_PORT").unwrap_or("8080");
+
+    (host.parse::<IpAddr>().unwrap(), port.parse::<u16>().unwrap())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let (host, port) = get_host_and_port();
+    let addr = SocketAddr::from((host, port));
 
     let listener = TcpListener::bind(addr).await?;
 
