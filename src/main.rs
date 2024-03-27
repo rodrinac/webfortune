@@ -26,7 +26,7 @@ fn get_fortune_files() -> HashSet<String> {
         .unwrap_or_else(|err| panic!("Failed to read fortune files: {}", err))
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|file| !file.ends_with(".dat"))
+        .filter(|file| !file.contains('.'))
         .collect()
 }
 
