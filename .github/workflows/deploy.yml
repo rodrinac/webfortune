@@ -28,7 +28,6 @@ jobs:
       TF_VAR_runtime_role_arn: ${{ vars.RUNTIME_ROLE_ARN }}
       ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
-      TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v5
@@ -85,7 +84,7 @@ jobs:
             -backend-config="key=webfortune/prod/terraform.tfstate" \
             -backend-config="workspace_key_prefix=webfortune/prod/workspaces" \
             -backend-config="region=$AWS_REGION" \
-            -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE" \
+            -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
           terraform -chdir=infra validate
           terraform -chdir=infra plan -input=false -out=deploy.tfplan

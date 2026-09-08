@@ -31,9 +31,9 @@ The local helper passes temporary `aws login` credentials directly into Terrafor
 Two separate remote state keys are used:
 
 - `webfortune/bootstrap/terraform.tfstate`: administrator-managed bootstrap resources.
-- `webfortune/prod/terraform.tfstate`: application resources managed by CI.
+- `webfortune/prod/terraform.tfstate`: application resources managed by CI, using native S3 state locking.
 
-Never reuse cinemaclub's state key or destroy its shared bucket/lock table. DynamoDB locking matches the existing project; Terraform reports it as deprecated in favor of S3 lockfiles, so migrate both projects deliberately in a separate change.
+Never reuse cinemaclub's state key or destroy its shared bucket/lock table. The application state uses native S3 lockfiles; the administrator-managed bootstrap state still uses the shared DynamoDB lock table until that separate state is deliberately migrated.
 
 ## GitHub settings
 
@@ -48,7 +48,6 @@ Set these production environment variables:
 | `RUNTIME_ROLE_ARN` | bootstrap `runtime_role_arn` |
 | `ECR_REPOSITORY_URL` | bootstrap `repository_url` |
 | `TF_STATE_BUCKET` | `cinemaclub-tfstate-118462784293-euw1` |
-| `TF_STATE_LOCK_TABLE` | `cinemaclub-tf-locks` |
 
 Enable GitHub Pages with **GitHub Actions** as the source. The `github-pages` environment should allow only `main`. Merge the deployment workflow into main, or manually dispatch **Deploy production** on main.
 
