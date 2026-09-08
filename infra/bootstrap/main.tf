@@ -108,7 +108,7 @@ resource "aws_iam_role_policy" "deploy" {
       },
       {
         Sid      = "ConfigureOnlyThisAPI", Effect = "Allow"
-        Action   = ["apigateway:GET", "apigateway:POST", "apigateway:PUT", "apigateway:PATCH", "apigateway:DELETE"]
+        Action   = ["apigateway:GET", "apigateway:POST", "apigateway:PUT", "apigateway:PATCH", "apigateway:DELETE", "apigateway:TagResource", "apigateway:UntagResource"]
         Resource = ["arn:aws:apigateway:${var.aws_region}::/apis/${aws_apigatewayv2_api.app.id}", "arn:aws:apigateway:${var.aws_region}::/apis/${aws_apigatewayv2_api.app.id}/*"]
       },
       {
