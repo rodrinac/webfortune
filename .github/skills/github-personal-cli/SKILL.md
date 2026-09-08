@@ -18,4 +18,5 @@ Use this skill for GitHub.com work that must use the user's personal account.
 
 - Confirm the current branch, working-tree state, and remote before push or PR creation.
 - Push the intended branch, then create the PR with `GH_HOST=github.com gh pr create` and an explicit repository when useful.
+- In GitHub messages (PRs, issues, releases, comments, and commit messages), never use literal `\n` escape sequences. Format content with GitHub Markdown or HTML tags instead.
 - Report the resulting GitHub.com PR URL and validation results. If authentication cannot be completed, provide the GitHub.com compare/new-PR URL instead.
