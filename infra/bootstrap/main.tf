@@ -120,6 +120,15 @@ resource "aws_iam_role_policy" "deploy" {
         Sid = "DescribeLogs", Effect = "Allow", Action = ["logs:DescribeLogGroups"], Resource = "*"
       },
       {
+        Sid      = "ManageLogDelivery", Effect = "Allow"
+        Action   = ["logs:CreateLogDelivery", "logs:DeleteLogDelivery", "logs:GetLogDelivery", "logs:ListLogDeliveries", "logs:UpdateLogDelivery"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ManageLogResourcePolicy", Effect = "Allow"
+        Action = ["logs:DescribeResourcePolicies", "logs:PutResourcePolicy"], Resource = "*"
+      },
+      {
         Sid       = "ReadStateBucket", Effect = "Allow", Action = ["s3:ListBucket"]
         Resource  = "arn:aws:s3:::${var.state_bucket}"
         Condition = { StringLike = { "s3:prefix" = ["webfortune/prod/*"] } }
