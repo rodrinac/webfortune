@@ -73,7 +73,7 @@ jobs:
 
           branch="chore/version-bump"
           git checkout -b "$branch"
-          git add Cargo.toml package.json package-lock.json
+          git add Cargo.toml Cargo.lock package.json package-lock.json
           git commit -m "chore(release): bump version to v${{ steps.bump.outputs.version }} [skip version-bump]"
           git push origin "$branch" --force
 
