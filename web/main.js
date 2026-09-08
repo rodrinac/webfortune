@@ -8,10 +8,12 @@ const stage = $("fortune-stage");
 const category = $("category");
 const refresh = $("refresh");
 const copy = $("copy");
+const screenshot = $("screenshot");
 let fortune = "";
 let displayed = "Give me a moment. I’m chewing on a thought.";
 let busy = false;
 let copyTimer;
+let screenshotTimer;
 
 function renderCow() {
   const charWidth = parseFloat(getComputedStyle(cow).fontSize) * 0.61;
@@ -43,8 +45,11 @@ async function loadFortune() {
   refresh.disabled = true;
   category.disabled = true;
   copy.disabled = true;
+  screenshot.disabled = true;
   clearTimeout(copyTimer);
+  clearTimeout(screenshotTimer);
   $("copy-label").textContent = "Copy";
+  $("screenshot-label").textContent = "Screenshot";
   stage.setAttribute("aria-busy", "true");
   $("error").hidden = true;
   $("status").textContent = "Chewing on a thought…";
@@ -78,6 +83,7 @@ async function loadFortune() {
     refresh.disabled = false;
     category.disabled = category.options.length < 2;
     copy.disabled = !fortune;
+    screenshot.disabled = !fortune;
     stage.setAttribute("aria-busy", "false");
   }
 }
@@ -115,6 +121,53 @@ copy.addEventListener("click", async () => {
       "Clipboard unavailable. You can select and copy the fortune directly.";
     $("error").hidden = false;
   }
+});
+screenshot.addEventListener("click", () => {
+  const lines = cowsay(fortune || displayed, 48).split("\n");
+  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  const canvas = document.createElement("canvas");
+  const width = 1200;
+  const lineHeight = 27;
+  const height = 230 + lines.length * lineHeight;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const context = canvas.getContext("2d");
+  context.scale(scale, scale);
+  context.fillStyle = "#1e1e2e";
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = "#cba6f7";
+  context.font = "600 18px 'DM Sans', sans-serif";
+  context.fillText("webfortune.", 68, 70);
+  context.fillStyle = "#a6adc8";
+  context.font = "13px 'JetBrains Mono', monospace";
+  context.fillText("fortune | cowsay", 68, 105);
+  context.fillStyle = "#181825";
+  context.strokeStyle = "#45475a";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.roundRect(52, 132, width - 104, height - 180, 16);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "#cba6f7";
+  context.font = "400 20px 'JetBrains Mono', monospace";
+  lines.forEach((line, index) =>
+    context.fillText(line, 92, 185 + index * lineHeight),
+  );
+  context.fillStyle = "#6c7086";
+  context.font = "11px 'JetBrains Mono', monospace";
+  context.fillText("Fresh from the pasture · UTF-8 · 100% grass-fed", 68, height - 22);
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const link = document.createElement("a");
+    link.download = `webfortune-${new Date().toISOString().slice(0, 10)}.png`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
+    $("screenshot-label").textContent = "Saved!";
+    screenshotTimer = setTimeout(() => {
+      $("screenshot-label").textContent = "Screenshot";
+    }, 2000);
+  }, "image/png");
 });
 document.addEventListener("keydown", (event) => {
   if (
