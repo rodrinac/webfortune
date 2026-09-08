@@ -19,6 +19,46 @@ struct CategoriesResponse {
     data: HashSet<String>,
 }
 
+#[derive(Serialize)]
+struct LocaleResponse {
+    id: &'static str,
+    name: &'static str,
+}
+
+struct LocaleConfig {
+    id: &'static str,
+    name: &'static str,
+    path: Option<&'static str>,
+}
+
+const LOCALES: [LocaleConfig; 4] = [
+    LocaleConfig {
+        id: "en",
+        name: "English",
+        path: None,
+    },
+    LocaleConfig {
+        id: "de",
+        name: "Deutsch",
+        path: Some("/usr/share/games/fortunes/de"),
+    },
+    LocaleConfig {
+        id: "es",
+        name: "Español",
+        path: Some("/usr/share/games/fortunes/es"),
+    },
+    LocaleConfig {
+        id: "pt",
+        name: "Português",
+        path: Some("/usr/share/games/fortunes/brasil"),
+    },
+];
+
+struct FortuneQuery {
+    locale: String,
+    category: String,
+}
+
 fn response(status: StatusCode, content_type: &'static str, body: String) -> Response<String> {
     Response::builder()
         .status(status)
@@ -42,8 +82,16 @@ async fn run_fortune(args: Vec<String>) -> Result<Output, String> {
     .map_err(|_| "Failed to load fortune.".to_string())
 }
 
-async fn get_fortune_files() -> Result<HashSet<String>, String> {
-    let output = run_fortune(vec!["-f".to_string()]).await?;
+fn get_locale(locale: &str) -> Option<&'static LocaleConfig> {
+    LOCALES.iter().find(|config| config.id == locale)
+}
+
+async fn get_fortune_files(locale: &LocaleConfig) -> Result<HashSet<String>, String> {
+    let args = locale
+        .path
+        .map(|path| vec!["-f".to_string(), path.to_string()])
+        .unwrap_or_else(|| vec!["-f".to_string()]);
+    let output = run_fortune(args).await?;
     if !output.status.success() {
         return Err("Failed to load fortune categories.".to_string());
     }
@@ -59,11 +107,17 @@ async fn get_fortune_files() -> Result<HashSet<String>, String> {
         })
 }
 
-async fn get_fortune(category: &str) -> Result<String, String> {
-    let args = if category.is_empty() {
+async fn get_fortune(locale: &LocaleConfig, category: &str) -> Result<String, String> {
+    let args = if category.is_empty() && locale.path.is_none() {
         Vec::new()
+    } else if category.is_empty() {
+        vec![locale.path.unwrap().to_string()]
     } else {
-        vec!["--".to_string(), category.to_string()]
+        let path = locale
+            .path
+            .map(|path| format!("{path}/{category}"))
+            .unwrap_or_else(|| category.to_string());
+        vec!["--".to_string(), path]
     };
     let output = run_fortune(args).await?;
     if !output.status.success() {
@@ -73,31 +127,48 @@ async fn get_fortune(category: &str) -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|_| "Failed to parse fortune.".to_string())
 }
 
-fn parse_category(query: Option<&str>) -> Result<String, &'static str> {
+fn parse_query(query: Option<&str>) -> Result<FortuneQuery, &'static str> {
     let Some(query) = query else {
-        return Ok(String::new());
+        return Ok(FortuneQuery {
+            locale: "en".to_string(),
+            category: String::new(),
+        });
     };
 
+    let mut locale = None;
     let mut category = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
             return Err("Malformed query string.\n");
         };
-        if name != "category" || category.replace(value).is_some() {
-            return Err("Only one category parameter is supported.\n");
+        match name {
+            "locale" if locale.replace(value).is_none() => {}
+            "category" if category.replace(value).is_none() => {}
+            _ => return Err("Only one locale and category parameter are supported.\n"),
         }
+    }
+
+    let locale = locale.unwrap_or("en");
+    if get_locale(locale).is_none() {
+        return Err("Unsupported locale.\n");
     }
 
     let category = category.unwrap_or_default();
     if !category.is_empty()
         && !category.bytes().all(|character| {
-            character.is_ascii_alphanumeric() || character == b'-' || character == b'_'
+            character.is_ascii_alphanumeric()
+                || character == b'-'
+                || character == b'_'
+                || character == b'.'
         })
     {
         return Err("Invalid category.\n");
     }
 
-    Ok(category.to_string())
+    Ok(FortuneQuery {
+        locale: locale.to_string(),
+        category: category.to_string(),
+    })
 }
 
 async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::http::Error> {
@@ -110,7 +181,7 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
     }
 
     if req.uri().path() == "/health" {
-        return Ok(match get_fortune_files().await {
+        return Ok(match get_fortune_files(get_locale("en").unwrap()).await {
             Ok(categories) if !categories.is_empty() => response(
                 StatusCode::OK,
                 "application/json; charset=utf-8",
@@ -124,8 +195,34 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
         });
     }
 
+    if req.uri().path() == "/locales" {
+        let data = LOCALES
+            .iter()
+            .map(|locale| LocaleResponse {
+                id: locale.id,
+                name: locale.name,
+            })
+            .collect::<Vec<_>>();
+        return Ok(response(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            format!("{}\n", serde_json::to_string(&data).unwrap()),
+        ));
+    }
+
     if req.uri().path() == "/categories" {
-        return match get_fortune_files().await {
+        let query = match parse_query(req.uri().query()) {
+            Ok(query) => query,
+            Err(error) => {
+                return Ok(response(
+                    StatusCode::BAD_REQUEST,
+                    "text/plain; charset=utf-8",
+                    error.to_string(),
+                ));
+            }
+        };
+        let locale = get_locale(&query.locale).unwrap();
+        return match get_fortune_files(locale).await {
             Ok(data) => match serde_json::to_string(&CategoriesResponse { data }) {
                 Ok(body) => Ok(response(
                     StatusCode::OK,
@@ -154,8 +251,8 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
         ));
     }
 
-    let category = match parse_category(req.uri().query()) {
-        Ok(category) => category,
+    let query = match parse_query(req.uri().query()) {
+        Ok(query) => query,
         Err(error) => {
             return Ok(response(
                 StatusCode::BAD_REQUEST,
@@ -164,10 +261,11 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
             ));
         }
     };
+    let locale = get_locale(&query.locale).unwrap();
 
     // Only pass installed category names to the executable, never arbitrary paths/options.
-    match get_fortune_files().await {
-        Ok(categories) if !category.is_empty() && !categories.contains(&category) => {
+    match get_fortune_files(locale).await {
+        Ok(categories) if !query.category.is_empty() && !categories.contains(&query.category) => {
             return Ok(response(
                 StatusCode::NOT_FOUND,
                 "text/plain; charset=utf-8",
@@ -184,7 +282,7 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
         _ => {}
     }
 
-    match get_fortune(&category).await {
+    match get_fortune(locale, &query.category).await {
         Ok(text) => Ok(response(StatusCode::OK, "text/plain; charset=utf-8", text)),
         Err(error) => Ok(response(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -257,7 +355,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_request, parse_category};
+    use super::{handle_request, parse_query};
     use hyper::{Request, StatusCode};
 
     #[tokio::test]
@@ -285,18 +383,23 @@ mod tests {
 
     #[test]
     fn parses_an_optional_category() {
-        assert_eq!(parse_category(None), Ok(String::new()));
+        let query = parse_query(None).unwrap();
+        assert_eq!(query.locale, "en");
+        assert_eq!(query.category, "");
         assert_eq!(
-            parse_category(Some("category=ascii-art")),
-            Ok("ascii-art".to_string())
+            parse_query(Some("locale=es&category=refranes.fortunes"))
+                .unwrap()
+                .category,
+            "refranes.fortunes"
         );
     }
 
     #[test]
     fn rejects_ambiguous_or_malformed_queries() {
-        assert!(parse_category(Some("foo=bar")).is_err());
-        assert!(parse_category(Some("category=computers&category=linuxcookie")).is_err());
-        assert!(parse_category(Some("category=computers&foo=bar")).is_err());
-        assert!(parse_category(Some("category=not%20valid")).is_err());
+        assert!(parse_query(Some("foo=bar")).is_err());
+        assert!(parse_query(Some("category=computers&category=linuxcookie")).is_err());
+        assert!(parse_query(Some("category=computers&foo=bar")).is_err());
+        assert!(parse_query(Some("locale=fr")).is_err());
+        assert!(parse_query(Some("category=not%20valid")).is_err());
     }
 }

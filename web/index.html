@@ -23,29 +23,36 @@
           href="https://github.com/rodrinac/webfortune"
           target="_blank"
           rel="noreferrer"
-          >View source <span aria-hidden="true">↗</span></a
+          ><span id="source-label">View source</span>
+          <span aria-hidden="true">↗</span></a
         >
       </header>
 
       <main>
         <div class="intro">
           <p class="eyebrow">
-            <span aria-hidden="true">✦</span> SMALL WORDS. BIG PASTURE.
+            <span aria-hidden="true">✦</span>
+            <span id="eyebrow">SMALL WORDS. BIG PASTURE.</span>
           </p>
-          <h1>A little wisdom.<br />A lot of <span>moo.</span></h1>
+          <h1>
+            <span id="headline-first">A little wisdom.</span><br />
+            <span id="headline-second"><span id="headline-second-prefix">A lot of</span>
+              <span id="headline-moo">moo.</span></span>
+          </h1>
           <p class="description">
-            A pocket-sized pause in your day.<br class="mobile-break" />
-            Let the cow do the talking.
+            <span id="description-first">A pocket-sized pause in your day.</span
+            ><br class="mobile-break" />
+            <span id="description-second">Let the cow do the talking.</span>
           </p>
         </div>
 
-        <section class="terminal" aria-label="Fortune terminal">
+        <section id="terminal" class="terminal" aria-label="Fortune terminal">
           <div class="terminal-bar">
             <div class="window-dots" aria-hidden="true">
               <i></i><i></i><i></i>
             </div>
             <span>fortune <span class="pipe">|</span> cowsay</span>
-            <span class="terminal-label">~ / pasture</span>
+            <span id="terminal-label" class="terminal-label">~ / pasture</span>
           </div>
           <div class="terminal-body">
             <p class="command" aria-hidden="true">
@@ -60,17 +67,23 @@
               <span
                 ><span class="status-dot" aria-hidden="true"></span
                 ><span id="status" role="status">Waking up the cow…</span></span
-              ><span class="encoding">UTF-8 · 100% grass-fed</span>
+              ><span id="encoding" class="encoding">UTF-8 · 100% grass-fed</span>
             </div>
           </div>
         </section>
 
         <div class="controls">
-          <div class="category-field">
-            <label for="category">A little about</label>
+          <div class="locale-field">
+            <label for="locale" id="locale-label">Language</label>
             <div class="select-wrap">
-              <select id="category" disabled>
-                <option value="">Everything</option></select
+              <select id="locale" disabled></select
+              ><span aria-hidden="true">⌄</span>
+            </div>
+          </div>
+          <div class="category-field">
+            <label for="category" id="category-label">A little about</label>
+            <div class="select-wrap">
+              <select id="category" disabled></select
               ><span aria-hidden="true">⌄</span>
             </div>
           </div>
@@ -82,22 +95,25 @@
               <span aria-hidden="true">▣</span>
               <span id="screenshot-label">Copy screenshot</span></button
             ><button id="refresh" class="refresh-button" type="button">
-              <span aria-hidden="true">↻</span> Another fortune
+              <span aria-hidden="true">↻</span>
+              <span id="refresh-label">Another fortune</span>
             </button>
           </div>
         </div>
         <p id="error" class="error" role="alert" hidden></p>
         <p class="hint">
-          Good things come to those who <kbd>moo</kbd>.<span
+          <span id="hint-first">Good things come to those who</span>
+          <kbd>moo</kbd>.<span
             class="keyboard-hint"
           >
-            Press <kbd>Space</kbd> for another.</span
+            <span id="hint-second">Press</span> <kbd>Space</kbd>
+            <span id="hint-third">for another.</span></span
           >
         </p>
       </main>
 
       <footer>
-        <span>A small corner of the internet, just for you.</span
+        <span id="footer-label">A small corner of the internet, just for you.</span
         ><span class="palette" aria-label="Catppuccin Mocha theme"
           ><i></i><i></i><i></i><i></i><span>Catppuccin Mocha</span></span
         >
