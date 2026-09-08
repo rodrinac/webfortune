@@ -249,6 +249,7 @@ h1 span {
   gap: 16px;
   margin-top: 24px;
 }
+.locale-field label,
 .category-field label {
   font:
     10px "JetBrains Mono",
@@ -276,8 +277,11 @@ select {
   height: 44px;
   padding: 0 38px 0 14px;
   font-size: 12px;
-  width: 205px;
+  width: 170px;
   cursor: pointer;
+}
+.locale-field select {
+  width: 145px;
 }
 select:disabled {
   opacity: 0.6;
@@ -490,6 +494,7 @@ footer {
     gap: 15px;
     margin-top: 20px;
   }
+  .locale-field label,
   .category-field label {
     font-size: 10px;
   }
@@ -498,7 +503,7 @@ footer {
   }
   .actions {
     display: grid;
-    grid-template-columns: 1fr 2fr;
+    grid-template-columns: 1fr 1fr 1.5fr;
   }
   .copy-button,
   .screenshot-button,
