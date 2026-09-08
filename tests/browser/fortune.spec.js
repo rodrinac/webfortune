@@ -16,6 +16,25 @@ test("loads a fortune, selects categories, and stays within the viewport", async
         : "The secret of getting ahead is getting started.",
     });
   });
+  await page.addInitScript(() => {
+    window.__copiedScreenshotType = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        write: async ([item]) => {
+          window.__copiedScreenshotType = item.types[0];
+        },
+      },
+    });
+    Object.defineProperty(window, "ClipboardItem", {
+      configurable: true,
+      value: class {
+      constructor(data) {
+        this.types = Object.keys(data);
+      }
+      },
+    });
+  });
   await page.goto("/");
   await expect(page.locator("#cow")).toContainText("(oo)");
   await expect(page.locator("#fortune-text")).toHaveText(
@@ -24,10 +43,10 @@ test("loads a fortune, selects categories, and stays within the viewport", async
   await page.selectOption("#category", "computers");
   await expect(page.locator("#fortune-text")).toContainText("A computer");
   expect(requests).toContain("?category=computers");
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Screenshot" }).click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/^webfortune-\d{4}-\d{2}-\d{2}\.png$/);
+  const downloadPromise = page.waitForEvent("download", { timeout: 500 }).catch(() => null);
+  await page.getByRole("button", { name: "Copy screenshot" }).click();
+  await expect.poll(() => page.evaluate(() => window.__copiedScreenshotType)).toBe("image/png");
+  expect(await downloadPromise).toBeNull();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
