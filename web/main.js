@@ -53,7 +53,8 @@ const translations = {
     quiet: "An unusually quiet cow. Try another fortune.",
     fallback: "Even a wise cow needs a second try.",
     unavailable: "Everything (categories unavailable)",
-    clipboard: "Clipboard unavailable. You can select and copy the fortune directly.",
+    clipboard:
+      "Clipboard unavailable. You can select and copy the fortune directly.",
   },
   de: {
     name: "Deutsch",
@@ -167,7 +168,8 @@ const translations = {
     quiet: "Uma vaca silenciosa demais. Tente outra fortuna.",
     fallback: "Até uma vaca sábia precisa de uma segunda tentativa.",
     unavailable: "Tudo (categorias indisponíveis)",
-    clipboard: "Área de transferência indisponível. Copie a fortuna diretamente.",
+    clipboard:
+      "Área de transferência indisponível. Copie a fortuna diretamente.",
   },
 };
 
@@ -263,11 +265,11 @@ async function loadFortune() {
     renderCow();
   } catch (error) {
     $("error").textContent =
-      error.name === "TimeoutError"
-        ? strings().timeout
-        : error.message;
+      error.name === "TimeoutError" ? strings().timeout : error.message;
     $("error").hidden = false;
-    $("status").textContent = fortune ? strings().statusLast : strings().statusAway;
+    $("status").textContent = fortune
+      ? strings().statusLast
+      : strings().statusAway;
     if (!fortune) {
       displayed = strings().fallback;
       renderCow();
@@ -286,7 +288,9 @@ async function loadFortune() {
 async function loadCategories() {
   category.replaceChildren();
   try {
-    const categories = await (await request(`/categories?locale=${currentLocale}`)).json();
+    const categories = await (
+      await request(`/categories?locale=${currentLocale}`)
+    ).json();
     if (
       !Array.isArray(categories) ||
       !categories.every(
@@ -354,13 +358,13 @@ copy.addEventListener("click", async () => {
     $("error").hidden = false;
   }
 });
-screenshot.addEventListener("click", () => {
+screenshot.addEventListener("click", async () => {
+  await document.fonts.ready;
   const lines = cowsay(fortune || displayed, 48).split("\n");
   const scale = Math.min(window.devicePixelRatio || 1, 2);
   const canvas = document.createElement("canvas");
   const size = 900;
   const margin = 28;
-  const lineHeight = 23;
   canvas.width = size * scale;
   canvas.height = size * scale;
   const context = canvas.getContext("2d");
@@ -372,26 +376,41 @@ screenshot.addEventListener("click", () => {
   context.fillText("webfortune.", 68, 70);
   context.fillStyle = "#a6adc8";
   context.font = "13px 'JetBrains Mono', monospace";
-  context.fillText("fortune | cowsay", 68, 105);
+  context.fillText("fortune | cowsay", 68, 110);
   context.fillStyle = "#181825";
   context.strokeStyle = "#45475a";
   context.lineWidth = 1;
   context.beginPath();
-  context.roundRect(margin, 96, size - margin * 2, size - 138, 16);
+  const cardTop = 132;
+  const cardBottom = size - 28;
+  context.roundRect(
+    margin,
+    cardTop,
+    size - margin * 2,
+    cardBottom - cardTop,
+    16,
+  );
   context.fill();
   context.stroke();
   context.fillStyle = "#cba6f7";
-  context.font = "400 17px 'JetBrains Mono', monospace";
+  const longestLine = Math.max(...lines.map((line) => Array.from(line).length));
+  const cowFontSize = Math.max(
+    17,
+    Math.min(23, (size - 120) / (longestLine * 0.61)),
+  );
+  const lineHeight = Math.ceil(cowFontSize * 1.4);
+  context.font = `400 ${cowFontSize}px 'JetBrains Mono', monospace`;
   const contentHeight = lines.length * lineHeight;
-  const contentTop = 138;
-  const contentBottom = size - 98;
-  const startY = contentTop + Math.max(0, (contentBottom - contentTop - contentHeight) / 2);
+  const contentTop = cardTop + 42;
+  const contentBottom = cardBottom - 82;
+  const startY =
+    contentTop + Math.max(0, (contentBottom - contentTop - contentHeight) / 2);
   lines.forEach((line, index) =>
     context.fillText(line, 60, startY + index * lineHeight),
   );
   context.fillStyle = "#6c7086";
   context.font = "11px 'JetBrains Mono', monospace";
-  context.fillText(strings().statusFresh, 60, size - 62);
+  context.fillText(strings().statusFresh, 60, cardBottom - 28);
   canvas.toBlob(async (blob) => {
     if (!blob) return;
     try {
