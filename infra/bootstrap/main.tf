@@ -41,7 +41,7 @@ resource "aws_apigatewayv2_api" "app" {
   name          = "webfortune-prod"
   protocol_type = "HTTP"
   cors_configuration {
-    allow_origins = ["https://rodrinac.github.io"]
+    allow_origins = ["https://webfortune.app", "https://rodrinac.github.io"]
     allow_methods = ["GET", "OPTIONS"]
     allow_headers = ["content-type"]
     max_age       = 3600

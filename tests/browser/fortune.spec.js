@@ -241,6 +241,14 @@ test("loading gate covers only startup and language changes localize SEO", async
     "content",
     "webfortune — sabedoria com muu",
   );
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
+    "content",
+    "https://webfortune.app/",
+  );
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    "https://webfortune.app/",
+  );
   await expect(page.locator('meta[name="twitter:description"]')).toHaveAttribute(
     "content",
     /terminal Catppuccin aconchegante/,
