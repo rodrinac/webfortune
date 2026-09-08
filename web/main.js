@@ -382,17 +382,11 @@ async function loadLocales() {
 refresh.addEventListener("click", loadFortune);
 category.addEventListener("change", loadFortune);
 locale.addEventListener("change", async () => {
-  setLoading(true);
   currentLocale = locale.value;
   applyLocale();
-  try {
-    await loadCategories();
-    await loadFortune();
-    await waitForFonts();
-    renderCow();
-  } finally {
-    setLoading(false);
-  }
+  await loadCategories();
+  await loadFortune();
+  renderCow();
 });
 copy.addEventListener("click", async () => {
   try {
