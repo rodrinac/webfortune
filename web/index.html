@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e1e2e" />
+    <meta
+      name="description"
+      content="A little wisdom from a very wise cow. Fresh fortunes, wrapped in a cozy Catppuccin terminal."
+    />
+    <title>webfortune — wisdom, with a moo</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <a class="brand" href="./" aria-label="webfortune home"
+          ><span class="brand-icon" aria-hidden="true">(oo)</span
+          >webfortune<span class="brand-dot">.</span></a
+        >
+        <a
+          class="source-link"
+          href="https://github.com/rodrinac/webfortune"
+          target="_blank"
+          rel="noreferrer"
+          >View source <span aria-hidden="true">↗</span></a
+        >
+      </header>
+
+      <main>
+        <div class="intro">
+          <p class="eyebrow">
+            <span aria-hidden="true">✦</span> SMALL WORDS. BIG PASTURE.
+          </p>
+          <h1>A little wisdom.<br />A lot of <span>moo.</span></h1>
+          <p class="description">
+            A pocket-sized pause in your day.<br class="mobile-break" />
+            Let the cow do the talking.
+          </p>
+        </div>
+
+        <section class="terminal" aria-label="Fortune terminal">
+          <div class="terminal-bar">
+            <div class="window-dots" aria-hidden="true">
+              <i></i><i></i><i></i>
+            </div>
+            <span>fortune <span class="pipe">|</span> cowsay</span>
+            <span class="terminal-label">~ / pasture</span>
+          </div>
+          <div class="terminal-body">
+            <p class="command" aria-hidden="true">
+              <span>❯</span> <span id="command">fortune | cowsay</span
+              ><span class="cursor">▍</span>
+            </p>
+            <div id="fortune-stage" class="fortune-stage" aria-busy="true">
+              <pre id="cow" aria-hidden="true"></pre>
+              <p id="fortune-text" class="sr-only" aria-live="polite"></p>
+            </div>
+            <div class="terminal-bottom">
+              <span
+                ><span class="status-dot" aria-hidden="true"></span
+                ><span id="status" role="status">Waking up the cow…</span></span
+              ><span class="encoding">UTF-8 · 100% grass-fed</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="controls">
+          <div class="category-field">
+            <label for="category">A little about</label>
+            <div class="select-wrap">
+              <select id="category" disabled>
+                <option value="">Everything</option></select
+              ><span aria-hidden="true">⌄</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="copy" class="copy-button" type="button" disabled>
+              <span aria-hidden="true">⧉</span>
+              <span id="copy-label">Copy</span></button
+            ><button id="refresh" class="refresh-button" type="button">
+              <span aria-hidden="true">↻</span> Another fortune
+            </button>
+          </div>
+        </div>
+        <p id="error" class="error" role="alert" hidden></p>
+        <p class="hint">
+          Good things come to those who <kbd>moo</kbd>.<span
+            class="keyboard-hint"
+          >
+            Press <kbd>Space</kbd> for another.</span
+          >
+        </p>
+      </main>
+
+      <footer>
+        <span>A small corner of the internet, just for you.</span
+        ><span class="palette" aria-label="Catppuccin Mocha theme"
+          ><i></i><i></i><i></i><i></i><span>Catppuccin Mocha</span></span
+        >
+      </footer>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

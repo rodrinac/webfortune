@@ -30,3 +30,51 @@ jobs:
 
       - name: Test
         run: cargo test --all-targets
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+        env:
+          VITE_API_URL: https://example.execute-api.eu-west-1.amazonaws.com
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=infra init -backend=false
+      - run: terraform -chdir=infra validate
+      - run: terraform -chdir=infra/bootstrap init -backend=false
+      - run: terraform -chdir=infra/bootstrap validate
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: docker build -t webfortune:test .
+      - name: Smoke-test the production container
+        run: |
+          set -euo pipefail
+          docker run -d --name webfortune-test -p 8080:8080 webfortune:test
+          trap 'docker logs webfortune-test; docker stop webfortune-test' EXIT
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/health; then break; fi
+            sleep 1
+          done
+          npm run smoke
