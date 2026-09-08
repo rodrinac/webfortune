@@ -113,6 +113,25 @@ test("loads a fortune, selects categories, and stays within the viewport", async
     expect(refreshLabelBox.height).toBeLessThan(refreshBox.height / 2);
     expect(refreshStyle.fontFamily).toContain("DM Sans");
     expect(refreshStyle.fontSize).toBe("12px");
+    const actionSpacing = await page.locator(".actions").evaluate((actions) => {
+      const style = getComputedStyle(actions);
+      return {
+        gap: style.gap,
+        buttons: [...actions.querySelectorAll("button")].map((button) => {
+          const buttonStyle = getComputedStyle(button);
+          return {
+            height: buttonStyle.height,
+            padding: buttonStyle.padding,
+          };
+        }),
+      };
+    });
+    expect(actionSpacing.gap).toBe("12px");
+    expect(actionSpacing.buttons).toEqual([
+      { height: "52px", padding: "8px 10px" },
+      { height: "52px", padding: "8px 10px" },
+      { height: "52px", padding: "8px 10px" },
+    ]);
   }
   if (test.info().project.name === "desktop") {
     expect(
@@ -171,7 +190,7 @@ test("API text is never interpreted as HTML", async ({ page }) => {
   await expect(page.locator("#cow img")).toHaveCount(0);
 });
 
-test("loading gate covers startup and localizes SEO on language changes", async ({
+test("loading gate covers only startup and language changes localize SEO", async ({
   page,
 }) => {
   const pendingFortunes = [];
@@ -204,9 +223,10 @@ test("loading gate covers startup and localizes SEO on language changes", async 
 
   await page.selectOption("#locale", "pt");
   await expect.poll(() => pendingFortunes.length).toBe(1);
-  await expect(page.locator("#app-loader")).toBeVisible();
-  pendingFortunes.shift()();
   await expect(page.locator("#app-loader")).toBeHidden();
+  await expect(page.locator("#page")).toHaveAttribute("aria-hidden", "false");
+  pendingFortunes.shift()();
+  await expect(page.locator("#fortune-text")).toContainText("À vaca sábia");
   await expect(page.locator("html")).toHaveAttribute("lang", "pt");
   await expect(page).toHaveTitle("webfortune — sabedoria com muu");
   await expect(page.locator('meta[name="description"]')).toHaveAttribute(
