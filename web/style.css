@@ -23,6 +23,54 @@
 body {
   margin: 0;
 }
+.app-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--base);
+}
+.app-loader[hidden] {
+  display: none;
+}
+.loader-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  color: var(--text);
+  font-size: 24px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-weight: 750;
+  letter-spacing: -0.8px;
+  animation: loader-pulse 1.25s ease-in-out infinite alternate;
+}
+.loader-cow {
+  padding: 11px 8px;
+  border: 1px solid #cba6f740;
+  border-radius: 11px;
+  color: var(--mauve);
+  background: #cba6f70c;
+  font: 600 17px ui-monospace, monospace;
+  letter-spacing: -1px;
+}
+.app-loading {
+  overflow: hidden;
+}
+.app-loading .page {
+  visibility: hidden;
+  opacity: 0;
+}
+@keyframes loader-pulse {
+  from {
+    opacity: 0.55;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
 button,
 select,
 a {
@@ -426,6 +474,7 @@ footer {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .loader-brand,
   *,
   *::before,
   *::after {

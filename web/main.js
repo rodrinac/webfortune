@@ -20,6 +20,10 @@ const translations = {
   en: {
     name: "English",
     title: "webfortune — wisdom, with a moo",
+    metaDescription:
+      "A little wisdom from a very wise cow. Fresh fortunes, wrapped in a cozy Catppuccin terminal.",
+    ogLocale: "en_US",
+    loading: "Loading webfortune",
     source: "View source",
     eyebrow: "SMALL WORDS. BIG PASTURE.",
     headlineFirst: "A little wisdom.",
@@ -59,6 +63,10 @@ const translations = {
   de: {
     name: "Deutsch",
     title: "webfortune — Weisheit mit Muh",
+    metaDescription:
+      "Ein wenig Weisheit von einer sehr weisen Kuh – frische Sprüche in einem gemütlichen Catppuccin-Terminal.",
+    ogLocale: "de_DE",
+    loading: "Webfortune wird geladen",
     source: "Quellcode ansehen",
     eyebrow: "KLEINE WORTE. GROSSE WEIDE.",
     headlineFirst: "Ein wenig Weisheit.",
@@ -97,6 +105,10 @@ const translations = {
   es: {
     name: "Español",
     title: "webfortune — sabiduría con muu",
+    metaDescription:
+      "Un poco de sabiduría de una vaca muy sabia: fortunas frescas en una acogedora terminal Catppuccin.",
+    ogLocale: "es_ES",
+    loading: "Cargando webfortune",
     source: "Ver código fuente",
     eyebrow: "PALABRAS PEQUEÑAS. PRADERA ENORME.",
     headlineFirst: "Un poco de sabiduría.",
@@ -135,6 +147,10 @@ const translations = {
   pt: {
     name: "Português",
     title: "webfortune — sabedoria com muu",
+    metaDescription:
+      "Um pouco de sabedoria de uma vaca muito sábia: mensagens frescas em um terminal Catppuccin aconchegante.",
+    ogLocale: "pt_BR",
+    loading: "Carregando webfortune",
     source: "Ver código-fonte",
     eyebrow: "PALAVRAS PEQUENAS. PASTO IMENSO.",
     headlineFirst: "Um pouco de sabedoria.",
@@ -188,10 +204,36 @@ function setText(id, text) {
   $(id).textContent = text;
 }
 
+function setMeta(id, content) {
+  $(id).setAttribute("content", content);
+}
+
+function setLoading(active) {
+  document.body.classList.toggle("app-loading", active);
+  $("app-loader").hidden = !active;
+  $("page").inert = active;
+  $("page").setAttribute("aria-hidden", String(active));
+}
+
+async function waitForFonts() {
+  await Promise.allSettled([
+    document.fonts.load('750 24px "DM Sans"'),
+    document.fonts.load('400 20px "JetBrains Mono"'),
+  ]);
+  await document.fonts.ready;
+}
+
 function applyLocale() {
   const text = strings();
   document.documentElement.lang = currentLocale;
   document.title = text.title;
+  setMeta("meta-description", text.metaDescription);
+  setMeta("og-locale", text.ogLocale);
+  setMeta("og-title", text.title);
+  setMeta("og-description", text.metaDescription);
+  setMeta("twitter-title", text.title);
+  setMeta("twitter-description", text.metaDescription);
+  setText("loader-label", text.loading);
   setText("source-label", text.source);
   setText("eyebrow", text.eyebrow);
   setText("headline-first", text.headlineFirst);
@@ -340,10 +382,17 @@ async function loadLocales() {
 refresh.addEventListener("click", loadFortune);
 category.addEventListener("change", loadFortune);
 locale.addEventListener("change", async () => {
+  setLoading(true);
   currentLocale = locale.value;
   applyLocale();
-  await loadCategories();
-  await loadFortune();
+  try {
+    await loadCategories();
+    await loadFortune();
+    await waitForFonts();
+    renderCow();
+  } finally {
+    setLoading(false);
+  }
 });
 copy.addEventListener("click", async () => {
   try {
@@ -360,7 +409,9 @@ copy.addEventListener("click", async () => {
 });
 screenshot.addEventListener("click", async () => {
   await document.fonts.ready;
-  const lines = cowsay(fortune || displayed, 48).split("\n");
+  // A slightly narrower bubble leaves room to render the entire cow at a
+  // comfortably readable size in the fixed square share image.
+  const lines = cowsay(fortune || displayed, 42).split("\n");
   const scale = Math.min(window.devicePixelRatio || 1, 2);
   const canvas = document.createElement("canvas");
   const size = 900;
@@ -372,10 +423,10 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#1e1e2e";
   context.fillRect(0, 0, size, size);
   context.fillStyle = "#cba6f7";
-  context.font = "600 18px 'DM Sans', sans-serif";
+  context.font = "600 22px 'DM Sans', sans-serif";
   context.fillText("webfortune.", 68, 70);
   context.fillStyle = "#a6adc8";
-  context.font = "13px 'JetBrains Mono', monospace";
+  context.font = "16px 'JetBrains Mono', monospace";
   context.fillText("fortune | cowsay", 68, 110);
   context.fillStyle = "#181825";
   context.strokeStyle = "#45475a";
@@ -395,8 +446,8 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#cba6f7";
   const longestLine = Math.max(...lines.map((line) => Array.from(line).length));
   const cowFontSize = Math.max(
-    17,
-    Math.min(23, (size - 120) / (longestLine * 0.61)),
+    20,
+    Math.min(28, (size - 120) / ((longestLine + 2) * 0.61)),
   );
   const lineHeight = Math.ceil(cowFontSize * 1.4);
   context.font = `400 ${cowFontSize}px 'JetBrains Mono', monospace`;
@@ -409,7 +460,7 @@ screenshot.addEventListener("click", async () => {
     context.fillText(line, 60, startY + index * lineHeight),
   );
   context.fillStyle = "#6c7086";
-  context.font = "11px 'JetBrains Mono', monospace";
+  context.font = "13px 'JetBrains Mono', monospace";
   context.fillText(strings().statusFresh, 60, cardBottom - 28);
   canvas.toBlob(async (blob) => {
     if (!blob) return;
@@ -444,9 +495,19 @@ document.addEventListener("keydown", (event) => {
   }
 });
 async function initialize() {
-  await loadLocales();
-  await loadCategories();
-  await loadFortune();
+  try {
+    await Promise.all([
+      waitForFonts(),
+      (async () => {
+        await loadLocales();
+        await loadCategories();
+        await loadFortune();
+      })(),
+    ]);
+    renderCow();
+  } finally {
+    setLoading(false);
+  }
 }
 
 initialize();

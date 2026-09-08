@@ -170,3 +170,60 @@ test("API text is never interpreted as HTML", async ({ page }) => {
   );
   await expect(page.locator("#cow img")).toHaveCount(0);
 });
+
+test("loading gate covers startup and localizes SEO on language changes", async ({
+  page,
+}) => {
+  const pendingFortunes = [];
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("locales"))
+      return route.fulfill({
+        json: [
+          { id: "en", name: "English" },
+          { id: "pt", name: "Português" },
+        ],
+      });
+    if (url.pathname.endsWith("categories"))
+      return route.fulfill({ json: [] });
+    await new Promise((resolve) => pendingFortunes.push(resolve));
+    return route.fulfill({
+      contentType: "text/plain; charset=utf-8",
+      body: url.searchParams.get("locale") === "pt"
+        ? "À vaca sábia vê além e não perde a fé."
+        : "A wise cow waits for the page to settle.",
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => pendingFortunes.length).toBe(1);
+  await expect(page.locator("#app-loader")).toBeVisible();
+  pendingFortunes.shift()();
+  await expect(page.locator("#app-loader")).toBeHidden();
+  await expect(page.locator("#page")).toHaveAttribute("aria-hidden", "false");
+
+  await page.selectOption("#locale", "pt");
+  await expect.poll(() => pendingFortunes.length).toBe(1);
+  await expect(page.locator("#app-loader")).toBeVisible();
+  pendingFortunes.shift()();
+  await expect(page.locator("#app-loader")).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("lang", "pt");
+  await expect(page).toHaveTitle("webfortune — sabedoria com muu");
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+    "content",
+    /vaca muito sábia/,
+  );
+  await expect(page.locator('meta[property="og:locale"]')).toHaveAttribute(
+    "content",
+    "pt_BR",
+  );
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "webfortune — sabedoria com muu",
+  );
+  await expect(page.locator('meta[name="twitter:description"]')).toHaveAttribute(
+    "content",
+    /terminal Catppuccin aconchegante/,
+  );
+  await expect(page.locator("#cow")).toContainText("À vaca sábia vê além");
+});
