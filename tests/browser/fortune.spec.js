@@ -24,11 +24,22 @@ test("loads a fortune, selects categories, and stays within the viewport", async
   await page.selectOption("#category", "computers");
   await expect(page.locator("#fortune-text")).toContainText("A computer");
   expect(requests).toContain("?category=computers");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Screenshot" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^webfortune-\d{4}-\d{2}-\d{2}\.png$/);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  if (test.info().project.name === "desktop") {
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight <= innerHeight,
+      ),
+    ).toBe(true);
+  }
   await page.screenshot({
     path: `test-results/${test.info().project.name}.png`,
     fullPage: true,
