@@ -17,6 +17,11 @@ jobs:
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
+    if: >-
+      ${{
+        (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]')) &&
+        (github.event_name != 'pull_request' || github.head_ref != 'chore/version-bump')
+      }}
 
     steps:
       - name: Checkout repository
