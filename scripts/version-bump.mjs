@@ -20,6 +20,7 @@ const REPO_ROOT = process.cwd();
 const PACKAGE_JSON_PATH = path.join(REPO_ROOT, "package.json");
 const PACKAGE_LOCK_PATH = path.join(REPO_ROOT, "package-lock.json");
 const CARGO_TOML_PATH = path.join(REPO_ROOT, "Cargo.toml");
+const CARGO_LOCK_PATH = path.join(REPO_ROOT, "Cargo.lock");
 
 const CONVENTIONAL_COMMIT_PATTERN = /^(\w+)(\([^)]*\))?(!)?:\s*(.+)$/;
 const BREAKING_CHANGE_PATTERN = /^BREAKING CHANGE:\s*/m;
@@ -112,6 +113,16 @@ const updateCargoToml = (filePath, nextVersion) => {
   writeFileSync(filePath, updated);
 };
 
+const updateCargoLock = (filePath, nextVersion) => {
+  if (!existsSync(filePath)) return;
+  const contents = readFileSync(filePath, "utf8");
+  const updated = contents.replace(
+    /(\[\[package\]\]\r?\nname = "webfortune"\r?\nversion = ")[^"]+(")/,
+    `$1${nextVersion}$2`,
+  );
+  writeFileSync(filePath, updated);
+};
+
 const main = () => {
   const packageJson = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8"));
   const currentVersion = packageJson.version;
@@ -140,6 +151,7 @@ const main = () => {
   });
 
   updateCargoToml(CARGO_TOML_PATH, nextVersion);
+  updateCargoLock(CARGO_LOCK_PATH, nextVersion);
 
   console.error(`Bumping version: ${currentVersion} -> ${nextVersion} (${bump})`);
   process.stdout.write(nextVersion);
