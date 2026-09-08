@@ -129,6 +129,10 @@ resource "aws_iam_role_policy" "deploy" {
         Resource = "arn:aws:s3:::${var.state_bucket}/webfortune/prod/terraform.tfstate"
       },
       {
+        Sid      = "ServiceStateLock", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "arn:aws:s3:::${var.state_bucket}/webfortune/prod/terraform.tfstate.tflock"
+      },
+      {
         Sid       = "StateLock", Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
         Resource  = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.lock_table}"
         Condition = { "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["${var.state_bucket}/webfortune/prod/terraform.tfstate*"] }, Null = { "dynamodb:LeadingKeys" = "false" } }
