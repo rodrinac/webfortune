@@ -49,7 +49,7 @@ async function loadFortune() {
   clearTimeout(copyTimer);
   clearTimeout(screenshotTimer);
   $("copy-label").textContent = "Copy";
-  $("screenshot-label").textContent = "Screenshot";
+  $("screenshot-label").textContent = "Copy screenshot";
   stage.setAttribute("aria-busy", "true");
   $("error").hidden = true;
   $("status").textContent = "Chewing on a thought…";
@@ -156,16 +156,25 @@ screenshot.addEventListener("click", () => {
   context.fillStyle = "#6c7086";
   context.font = "11px 'JetBrains Mono', monospace";
   context.fillText("Fresh from the pasture · UTF-8 · 100% grass-fed", 68, height - 22);
-  canvas.toBlob((blob) => {
+  canvas.toBlob(async (blob) => {
     if (!blob) return;
-    const link = document.createElement("a");
-    link.download = `webfortune-${new Date().toISOString().slice(0, 10)}.png`;
-    link.href = URL.createObjectURL(blob);
-    link.click();
-    URL.revokeObjectURL(link.href);
-    $("screenshot-label").textContent = "Saved!";
+    try {
+      if (!navigator.clipboard || !window.ClipboardItem)
+        throw new Error("Image clipboard is unavailable");
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob }),
+      ]);
+      $("screenshot-label").textContent = "Copied!";
+    } catch {
+      const link = document.createElement("a");
+      link.download = `webfortune-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      $("screenshot-label").textContent = "Downloaded";
+    }
     screenshotTimer = setTimeout(() => {
-      $("screenshot-label").textContent = "Screenshot";
+      $("screenshot-label").textContent = "Copy screenshot";
     }, 2000);
   }, "image/png");
 });
