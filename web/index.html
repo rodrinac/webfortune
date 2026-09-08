@@ -5,14 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#1e1e2e" />
     <meta
+      id="meta-description"
       name="description"
       content="A little wisdom from a very wise cow. Fresh fortunes, wrapped in a cozy Catppuccin terminal."
     />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="webfortune" />
+    <meta id="og-locale" property="og:locale" content="en_US" />
+    <meta id="og-title" property="og:title" content="webfortune — wisdom, with a moo" />
+    <meta
+      id="og-description"
+      property="og:description"
+      content="A little wisdom from a very wise cow. Fresh fortunes, wrapped in a cozy Catppuccin terminal."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta id="twitter-title" name="twitter:title" content="webfortune — wisdom, with a moo" />
+    <meta
+      id="twitter-description"
+      name="twitter:description"
+      content="A little wisdom from a very wise cow. Fresh fortunes, wrapped in a cozy Catppuccin terminal."
+    />
+    <link rel="canonical" href="https://rodrinac.github.io/webfortune/" />
     <title>webfortune — wisdom, with a moo</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   </head>
-  <body>
-    <div class="page">
+  <body class="app-loading">
+    <div id="app-loader" class="app-loader" role="status" aria-live="polite">
+      <div class="loader-brand" aria-hidden="true">
+        <span class="loader-cow">(oo)</span>
+        <span>webfortune<span class="brand-dot">.</span></span>
+      </div>
+      <span id="loader-label" class="sr-only">Loading webfortune</span>
+    </div>
+    <div id="page" class="page" aria-hidden="true" inert>
       <header class="header">
         <a class="brand" href="./" aria-label="webfortune home"
           ><span class="brand-icon" aria-hidden="true">(oo)</span

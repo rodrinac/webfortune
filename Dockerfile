@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends fortune-mod for
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1 /lambda-adapter /opt/extensions/lambda-adapter
 COPY --from=build /app/target/release/webfortune /usr/local/bin/webfortune
 ENV PATH="/usr/games:${PATH}" \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
     MY_APP_HOST=0.0.0.0 \
     MY_APP_PORT=8080 \
     AWS_LWA_PORT=8080 \

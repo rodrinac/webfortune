@@ -21,6 +21,10 @@ test("wraps long words and retains paragraph breaks", () => {
   for (const line of wrapFortune("a 😀😀😀😀😀😀 text", 5))
     assert.ok(Array.from(line).length <= 5);
 });
+test("preserves accented fortune text", () => {
+  const localized = "À vaca é sábia; amanhã dirá: î, ó, ü, ñ.";
+  assert.ok(cowsay(localized).includes(localized));
+});
 test("strips terminal controls without treating content as markup", () => {
   assert.ok(cowsay("<script>alert(1)</script>\u0007").includes("<script>"));
   assert.ok(!cowsay("hi\u0007").includes("\u0007"));
