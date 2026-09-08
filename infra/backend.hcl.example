@@ -3,5 +3,5 @@ bucket         = "cinemaclub-tfstate-118462784293-euw1"
 key            = "webfortune/prod/terraform.tfstate"
 workspace_key_prefix = "webfortune/prod/workspaces"
 region         = "eu-west-1"
-dynamodb_table = "cinemaclub-tf-locks"
+use_lockfile   = true
 encrypt        = true
