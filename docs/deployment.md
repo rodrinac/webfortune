@@ -2,9 +2,9 @@
 
 ## Architecture
 
-GitHub Pages → API Gateway HTTP API → Lambda container → `fortune`.
+`webfortune.app` on GitHub Pages → API Gateway HTTP API → Lambda container → `fortune`.
 
-The static UI renders the returned text as cowsay-style ASCII art in the browser. AWS hosts the existing Rust HTTP server with Lambda Web Adapter. HTTP API provides CORS for exactly `https://rodrinac.github.io`, plus throttling at 10 requests/second with a burst of 20. Throttling is best-effort, not a spending cap. There is no database, VPC, NAT gateway, or always-running server. Lambda uses 256 MB and a 10-second timeout; CloudWatch log retention is 14 days. AWS usage and ECR image storage are billable.
+The static UI renders the returned text as cowsay-style ASCII art in the browser. AWS hosts the existing Rust HTTP server with Lambda Web Adapter. HTTP API allows CORS from `https://webfortune.app` and the legacy `https://rodrinac.github.io` origin during the transition, plus throttling at 10 requests/second with a burst of 20. Throttling is best-effort, not a spending cap. There is no database, VPC, NAT gateway, or always-running server. Lambda uses 256 MB and a 10-second timeout; CloudWatch log retention is 14 days. AWS usage and ECR image storage are billable.
 
 ## One-time bootstrap
 
@@ -51,11 +51,13 @@ Set these production environment variables:
 
 Enable GitHub Pages with **GitHub Actions** as the source. The `github-pages` environment should allow only `main`. Merge the deployment workflow into main, or manually dispatch **Deploy production** on main.
 
+Verify `webfortune.app` in the owner's GitHub Pages account settings and keep its `_github-pages-challenge-rodrinac` TXT record. Configure the repository Pages custom domain as `webfortune.app`. At the registrar, point the apex to GitHub Pages using its four documented A records and point `www` directly to `rodrinac.github.io` with a CNAME. Do not use wildcard records. Enable HTTPS after GitHub finishes provisioning the certificate.
+
 The pipeline pins each deployment to its triggering commit. ECR tags are immutable commit SHAs; reruns reuse an existing image. Terraform deploys the image digest, then the Pages build consumes the successful backend job's API URL. The web build requires no AWS permissions and does not read Terraform state.
 
 ## Verification and recovery
 
-After a successful deployment, open `https://rodrinac.github.io/webfortune/`. Choose a category, request another fortune, and copy the cow. The pipeline smoke-checks `/health`, random/category fortunes, query validation, unknown routes, method rejection, and CORS headers.
+After a successful deployment, open `https://webfortune.app/`. Choose a category, request another fortune, and copy the cow. The pipeline smoke-checks `/health`, random/category fortunes, query validation, unknown routes, method rejection, and CORS headers.
 
 To retry a failed deployment, rerun the failed workflow. If the backend was already updated but Pages failed, the previous UI stays published and remains compatible with the API. If bootstrap variables or permissions changed, apply bootstrap locally before rerunning. Revert a bad application commit with a new commit on main; the normal workflow rebuilds and deploys it. Keep previously deployed ECR digests for recovery; do not expire images still referenced by Lambda.
 

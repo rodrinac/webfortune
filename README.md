@@ -2,6 +2,8 @@
 
 A little wisdom. A lot of moo. A Rust `fortune` API on AWS and a Catppuccin Mocha web UI on GitHub Pages.
 
+Production: [webfortune.app](https://webfortune.app/)
+
 The browser renders fortunes in a responsive cowsay-style ASCII bubble, with category selection, copy, keyboard shortcuts, and accessible loading/error states. Fortune text is always rendered as text, never HTML.
 
 ## Local development
@@ -47,7 +49,7 @@ For a standalone production UI build:
 VITE_API_URL=https://YOUR_API_ID.execute-api.eu-west-1.amazonaws.com npm run build
 ```
 
-Builds fail without a public HTTPS API URL. Assets use relative paths so the site works at `/webfortune/` on Pages. `VITE_API_URL` is public configuration, not a secret.
+Builds fail without a public HTTPS API URL. Assets use relative paths so the site works at both `webfortune.app` and the GitHub Pages project path. `VITE_API_URL` is public configuration, not a secret.
 
 ## Verification
 
@@ -59,7 +61,7 @@ npm test
 npx playwright install chromium
 npm run test:e2e
 npm run smoke # needs the local backend
-API_URL=https://YOUR_API_ID.execute-api.eu-west-1.amazonaws.com CORS_ORIGIN=https://rodrinac.github.io npm run smoke
+API_URL=https://YOUR_API_ID.execute-api.eu-west-1.amazonaws.com CORS_ORIGIN=https://webfortune.app npm run smoke
 ```
 
 Browser tests cover desktop/mobile layout, category selection, retry, preserving the previous fortune after a failure, and safe rendering of HTML-like text. CI also validates both Terraform configurations.

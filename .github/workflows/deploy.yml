@@ -94,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           export API_URL="$(terraform -chdir=infra output -raw api_url)"
-          export CORS_ORIGIN=https://rodrinac.github.io
+          export CORS_ORIGIN=https://webfortune.app
           npm run smoke
           echo "url=$API_URL" >> "$GITHUB_OUTPUT"
 
