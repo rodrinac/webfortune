@@ -82,3 +82,8 @@ jobs:
             --head "$branch" \
             --title "chore(release): bump version to v${{ steps.bump.outputs.version }}" \
             --body "Automated version bump to \`v${{ steps.bump.outputs.version }}\`, determined from Conventional Commits merged since the last release tag. Merging this PR will trigger the release workflow once the next production deploy completes."
+
+          gh pr merge "$branch" \
+            --auto \
+            --rebase \
+            --delete-branch
