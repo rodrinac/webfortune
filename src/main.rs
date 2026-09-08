@@ -73,6 +73,11 @@ async fn run_fortune(args: Vec<String>) -> Result<Output, String> {
     tokio::time::timeout(
         Duration::from_secs(3),
         Command::new("fortune")
+            // fortune-mod transcodes UTF-8 databases to the process locale. Its
+            // fallback for the C locale is ISO-8859-1, which corrupts accented
+            // output before Rust can return it as UTF-8.
+            .env("LANG", "C.UTF-8")
+            .env("LC_ALL", "C.UTF-8")
             .args(args)
             .kill_on_drop(true)
             .output(),
@@ -86,6 +91,22 @@ fn get_locale(locale: &str) -> Option<&'static LocaleConfig> {
     LOCALES.iter().find(|config| config.id == locale)
 }
 
+fn parse_fortune_files(bytes: Vec<u8>) -> Result<HashSet<String>, String> {
+    String::from_utf8(bytes)
+        .map_err(|_| "Failed to parse fortune categories.".to_string())
+        .map(|categories| {
+            categories
+                .lines()
+                .skip(1)
+                .filter_map(|line| line.split_whitespace().last())
+                // Debian uses .u8 marker symlinks to tell fortune-mod that a
+                // database is UTF-8. Keep that implementation detail out of
+                // API category identifiers and direct database paths.
+                .map(|name| name.strip_suffix(".u8").unwrap_or(name).to_string())
+                .collect()
+        })
+}
+
 async fn get_fortune_files(locale: &LocaleConfig) -> Result<HashSet<String>, String> {
     let args = locale
         .path
@@ -96,15 +117,7 @@ async fn get_fortune_files(locale: &LocaleConfig) -> Result<HashSet<String>, Str
         return Err("Failed to load fortune categories.".to_string());
     }
 
-    String::from_utf8(output.stderr)
-        .map_err(|_| "Failed to parse fortune categories.".to_string())
-        .map(|categories| {
-            categories
-                .lines()
-                .skip(1)
-                .filter_map(|line| line.split_whitespace().last().map(str::to_owned))
-                .collect()
-        })
+    parse_fortune_files(output.stderr)
 }
 
 async fn get_fortune(locale: &LocaleConfig, category: &str) -> Result<String, String> {
@@ -355,7 +368,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_request, parse_query};
+    use super::{handle_request, parse_fortune_files, parse_query};
     use hyper::{Request, StatusCode};
 
     #[tokio::test]
@@ -401,5 +414,17 @@ mod tests {
         assert!(parse_query(Some("category=computers&foo=bar")).is_err());
         assert!(parse_query(Some("locale=fr")).is_err());
         assert!(parse_query(Some("category=not%20valid")).is_err());
+    }
+
+    #[test]
+    fn strips_debian_utf8_markers_from_categories() {
+        let categories = parse_fortune_files(
+            b"100.00% /usr/share/games/fortunes/de\n 50.00% kinderzitate.u8\n 50.00% zitate\n"
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(categories.contains("kinderzitate"));
+        assert!(categories.contains("zitate"));
+        assert!(!categories.contains("kinderzitate.u8"));
     }
 }
