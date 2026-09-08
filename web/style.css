@@ -103,7 +103,7 @@ button:disabled {
 main {
   width: 100%;
   max-width: 744px;
-  margin: 37px auto 76px;
+  margin: 37px auto 60px;
 }
 .intro {
   text-align: center;
@@ -287,6 +287,7 @@ select:disabled {
   gap: 10px;
 }
 .copy-button,
+.screenshot-button,
 .refresh-button {
   border-radius: 8px;
   height: 44px;
@@ -309,6 +310,19 @@ select:disabled {
 }
 .copy-button:hover {
   background: var(--surface);
+}
+.screenshot-button {
+  border: 1px solid #45475a80;
+  background: transparent;
+  color: var(--subtext);
+}
+.screenshot-button:hover {
+  background: var(--surface);
+}
+.screenshot-button > span:first-child {
+  font-size: 16px;
+  margin-right: 5px;
+  vertical-align: -1px;
 }
 .refresh-button {
   border: 1px solid var(--mauve);
@@ -487,6 +501,7 @@ footer {
     grid-template-columns: 1fr 2fr;
   }
   .copy-button,
+  .screenshot-button,
   .refresh-button {
     padding: 0 12px;
   }
@@ -502,5 +517,43 @@ footer {
     gap: 14px;
     padding: 22px 0 26px;
     font-size: 9px;
+  }
+}
+@media (min-width: 601px) and (max-height: 850px) {
+  .header {
+    height: 78px;
+  }
+  main {
+    margin-top: 18px;
+    margin-bottom: 28px;
+  }
+  .intro {
+    margin-bottom: 22px;
+  }
+  .eyebrow {
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 50px;
+    margin-bottom: 12px;
+  }
+  .description {
+    line-height: 1.5;
+  }
+  .terminal-body {
+    padding-top: 18px;
+  }
+  .fortune-stage {
+    min-height: 220px;
+    padding: 22px 0;
+  }
+  .controls {
+    margin-top: 16px;
+  }
+  .hint {
+    margin-top: 14px;
+  }
+  footer {
+    padding: 18px 0 22px;
   }
 }

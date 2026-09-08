@@ -5,7 +5,7 @@ COPY src ./src
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends fortune-mod fortunes-min ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends fortune-mod fortunes fortunes-min ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1 /lambda-adapter /opt/extensions/lambda-adapter
 COPY --from=build /app/target/release/webfortune /usr/local/bin/webfortune
