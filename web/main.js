@@ -428,7 +428,7 @@ screenshot.addEventListener("click", async () => {
 
   // Print the terminal itself, rather than placing it inside a branded card.
   context.fillStyle = "#181825";
-  context.strokeStyle = "#45475a";
+  context.strokeStyle = "#665f52";
   context.lineWidth = 1;
   context.beginPath();
   context.roundRect(
@@ -474,7 +474,7 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#a6adc8";
   context.fillText("fortune | cowsay", promptX + 27, promptY);
   const commandWidth = context.measureText("fortune | cowsay").width;
-  context.fillStyle = "#cba6f7";
+  context.fillStyle = "#f9e2af";
   context.fillText("▍", promptX + 35 + commandWidth, promptY);
 
   context.fillStyle = "#cba6f7";

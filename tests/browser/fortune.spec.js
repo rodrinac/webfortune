@@ -210,6 +210,30 @@ test("API text is never interpreted as HTML", async ({ page }) => {
   await expect(page.locator("#cow img")).toHaveCount(0);
 });
 
+test("long fortunes cannot widen the mobile layout", async ({ page }) => {
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("locales"))
+      return route.fulfill({ json: [{ id: "en", name: "English" }] });
+    if (path.endsWith("categories")) return route.fulfill({ json: [] });
+    return route.fulfill({
+      body: "Show me no patterns and I'll tell you no lines, boundaries, or impossibly wide pastures.",
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator("#cow")).toContainText("(oo)");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  const terminal = await page.locator("#terminal").boundingBox();
+  expect(terminal.x).toBeGreaterThanOrEqual(0);
+  expect(terminal.x + terminal.width).toBeLessThanOrEqual(
+    page.viewportSize().width,
+  );
+});
+
 test("loading gate covers only startup and language changes localize SEO", async ({
   page,
 }) => {

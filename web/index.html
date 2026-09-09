@@ -30,16 +30,16 @@
     <title>webfortune — wisdom, with a moo</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   </head>
-  <body class="app-loading">
-    <div id="app-loader" class="app-loader" role="status" aria-live="polite">
-      <div class="loader-brand" aria-hidden="true">
+  <body class="app-loading m-0">
+    <div id="app-loader" class="app-loader fixed inset-0 z-100 grid place-items-center" role="status" aria-live="polite">
+      <div class="loader-brand flex items-center" aria-hidden="true">
         <span class="loader-cow">(oo)</span>
         <span>webfortune<span class="brand-dot">.</span></span>
       </div>
       <span id="loader-label" class="sr-only">Loading webfortune</span>
     </div>
-    <div id="page" class="page" aria-hidden="true" inert>
-      <header class="header">
+    <div id="page" class="page mx-auto flex min-h-svh w-full min-w-0 max-w-[1120px] flex-col px-12" aria-hidden="true" inert>
+      <header class="header flex h-[108px] items-center justify-between">
         <a class="brand" href="./" aria-label="webfortune home"
           ><span class="brand-icon" aria-hidden="true">(oo)</span
           >webfortune<span class="brand-dot">.</span></a
@@ -54,8 +54,8 @@
         >
       </header>
 
-      <main>
-        <div class="intro">
+      <main class="w-full min-w-0 max-w-[744px]">
+        <div class="intro text-center">
           <p class="eyebrow">
             <span aria-hidden="true">✦</span>
             <span id="eyebrow">SMALL WORDS. BIG PASTURE.</span>
@@ -72,7 +72,7 @@
           </p>
         </div>
 
-        <section id="terminal" class="terminal" aria-label="Fortune terminal">
+        <section id="terminal" class="terminal min-w-0 max-w-full" aria-label="Fortune terminal">
           <div class="terminal-bar">
             <div class="window-dots" aria-hidden="true">
               <i></i><i></i><i></i>
@@ -89,8 +89,8 @@
               <span>❯</span> <span id="command">fortune | cowsay</span
               ><span class="cursor">▍</span>
             </p>
-            <div id="fortune-stage" class="fortune-stage" aria-busy="true">
-              <pre id="cow" aria-hidden="true"></pre>
+            <div id="fortune-stage" class="fortune-stage min-w-0 overflow-hidden" aria-busy="true">
+              <pre id="cow" class="max-w-full" aria-hidden="true"></pre>
               <p id="fortune-text" class="sr-only" aria-live="polite"></p>
             </div>
             <div class="terminal-bottom">
@@ -102,7 +102,7 @@
           </div>
         </section>
 
-        <div class="controls">
+        <div class="controls flex items-end justify-between">
           <div class="locale-field">
             <label for="locale" id="locale-label">Language</label>
             <div class="select-wrap">
@@ -117,7 +117,7 @@
               ><span aria-hidden="true">⌄</span>
             </div>
           </div>
-          <div class="actions">
+          <div class="actions flex">
             <button id="copy" class="copy-button" type="button" disabled>
               <span aria-hidden="true">⧉</span>
               <span id="copy-label">Copy</span></button
