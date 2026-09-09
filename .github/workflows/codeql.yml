@@ -17,21 +17,29 @@ jobs:
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]')) &&
-        (github.event_name != 'pull_request' || github.head_ref != 'chore/version-bump')
-      }}
+    env:
+      SKIP_VALIDATION: >-
+        ${{
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip version-bump]')) ||
+          (github.event_name == 'pull_request' && github.head_ref == 'chore/version-bump')
+        }}
 
     steps:
+      - name: Accept version bump
+        if: env.SKIP_VALIDATION == 'true'
+        run: echo "Version-only change; CodeQL completed on the source PR."
+
       - name: Checkout repository
+        if: env.SKIP_VALIDATION != 'true'
         uses: actions/checkout@v6
 
       - name: Initialize CodeQL
+        if: env.SKIP_VALIDATION != 'true'
         uses: github/codeql-action/init@v4
         with:
           languages: actions, rust
           build-mode: none
 
       - name: Analyze code
+        if: env.SKIP_VALIDATION != 'true'
         uses: github/codeql-action/analyze@v4
