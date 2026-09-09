@@ -78,13 +78,15 @@ jobs:
           git commit -m "chore(release): bump version to v${{ steps.bump.outputs.version }} [skip version-bump]"
           git push origin "$branch" --force
 
-          gh pr create \
+          pr_url="$(gh pr create \
             --base "${{ github.ref_name }}" \
             --head "$branch" \
             --title "chore(release): bump version to v${{ steps.bump.outputs.version }}" \
-            --body "Automated version bump to \`v${{ steps.bump.outputs.version }}\`, determined from Conventional Commits merged since the last release tag. Merging this PR will trigger the release workflow once the next production deploy completes."
+            --body "Automated version bump to \`v${{ steps.bump.outputs.version }}\`, determined from Conventional Commits merged since the last release tag. Merging this PR will trigger the release workflow once the next production deploy completes.")"
+          PR_NUMBER="${pr_url##*/}"
 
-          gh pr merge "$branch" \
-            --auto \
+          gh pr merge "$PR_NUMBER" \
+            --repo rodrinac/webfortune \
             --rebase \
+            --admin \
             --delete-branch
