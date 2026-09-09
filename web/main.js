@@ -409,7 +409,8 @@ screenshot.addEventListener("click", async () => {
   const scale = Math.min(window.devicePixelRatio || 1, 2);
   const canvas = document.createElement("canvas");
   const size = 900;
-  const inset = 18;
+  const inset = 24;
+  const frameRadius = Math.round(inset * 0.42);
   const frameRight = size - inset;
   const frameBottom = size - inset;
   const titleBarHeight = 48;
@@ -430,7 +431,7 @@ screenshot.addEventListener("click", async () => {
     inset,
     size - inset * 2,
     size - inset * 2,
-    14,
+    frameRadius,
   );
   context.fill();
   context.stroke();
@@ -442,7 +443,7 @@ screenshot.addEventListener("click", async () => {
     inset,
     size - inset * 2,
     size - inset * 2,
-    14,
+    frameRadius,
   );
   context.clip();
   context.fillStyle = "#1b1b2a";
@@ -460,16 +461,28 @@ screenshot.addEventListener("click", async () => {
   });
   context.restore();
 
+  const promptX = inset + 32;
+  const promptY = inset + titleBarHeight + 31;
+  context.font = "400 14px 'JetBrains Mono', monospace";
+  context.fillStyle = "#a6e3a1";
+  context.fillText("❯", promptX, promptY);
+  context.fillStyle = "#a6adc8";
+  context.fillText("fortune | cowsay", promptX + 27, promptY);
+  const commandWidth = context.measureText("fortune | cowsay").width;
+  context.fillStyle = "#cba6f7";
+  context.fillText("▍", promptX + 35 + commandWidth, promptY);
+
   context.fillStyle = "#cba6f7";
   const longestLine = Math.max(...lines.map((line) => Array.from(line).length));
+  const contentWidth = size - (inset + 32) * 2;
   const cowFontSize = Math.max(
     20,
-    Math.min(28, (size - 108) / ((longestLine + 2) * 0.61)),
+    Math.min(28, contentWidth / ((longestLine + 2) * 0.61)),
   );
   const lineHeight = Math.ceil(cowFontSize * 1.4);
   context.font = `400 ${cowFontSize}px 'JetBrains Mono', monospace`;
   const contentHeight = lines.length * lineHeight;
-  const contentTop = inset + titleBarHeight + 42;
+  const contentTop = promptY + 34;
   const contentBottom = frameBottom - 70;
   const startY =
     contentTop + Math.max(0, (contentBottom - contentTop - contentHeight) / 2);
