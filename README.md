@@ -17,7 +17,7 @@ npm ci
 npm run dev
 ```
 
-Open the Vite URL. `MY_APP_HOST` and `MY_APP_PORT` configure the backend bind address (defaults: `127.0.0.1:8080`). Optional `CORS_ALLOW_ORIGIN` accepts one exact origin for direct local browser access. Production CORS is configured on API Gateway.
+Open the Vite URL. `MY_APP_HOST` and `MY_APP_PORT` configure the backend bind address (defaults: `127.0.0.1:8080`). `FORTUNE_DATA_DIR` sets the root for localized fortune databases and defaults to `/usr/share/games/fortunes`. Homebrew users can run the backend with `FORTUNE_DATA_DIR=/opt/homebrew/share/games/fortunes cargo run`. Optional `CORS_ALLOW_ORIGIN` accepts one exact origin for direct local browser access. Production CORS is configured on API Gateway.
 
 ```sh
 docker build -t webfortune .
