@@ -239,6 +239,9 @@ h1 span {
 .pipe {
   color: var(--overlay);
 }
+.terminal-title .faded {
+  color: var(--overlay);
+}
 .terminal-label {
   margin-left: auto;
   font-size: 10px;

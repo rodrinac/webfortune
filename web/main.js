@@ -404,58 +404,91 @@ copy.addEventListener("click", async () => {
 screenshot.addEventListener("click", async () => {
   await document.fonts.ready;
   // A slightly narrower bubble leaves room to render the entire cow at a
-  // comfortably readable size in the fixed square share image.
+  // comfortably readable size in the fixed square terminal print.
   const lines = cowsay(fortune || displayed, 42).split("\n");
   const scale = Math.min(window.devicePixelRatio || 1, 2);
   const canvas = document.createElement("canvas");
   const size = 900;
-  const margin = 28;
+  const inset = 18;
+  const frameRight = size - inset;
+  const frameBottom = size - inset;
+  const titleBarHeight = 48;
   canvas.width = size * scale;
   canvas.height = size * scale;
   const context = canvas.getContext("2d");
   context.scale(scale, scale);
   context.fillStyle = "#1e1e2e";
   context.fillRect(0, 0, size, size);
-  context.fillStyle = "#cba6f7";
-  context.font = "600 22px 'DM Sans', sans-serif";
-  context.fillText("webfortune.", 68, 70);
-  context.fillStyle = "#a6adc8";
-  context.font = "16px 'JetBrains Mono', monospace";
-  context.fillText("fortune | cowsay", 68, 110);
+
+  // Print the terminal itself, rather than placing it inside a branded card.
   context.fillStyle = "#181825";
   context.strokeStyle = "#45475a";
   context.lineWidth = 1;
   context.beginPath();
-  const cardTop = 132;
-  const cardBottom = size - 28;
   context.roundRect(
-    margin,
-    cardTop,
-    size - margin * 2,
-    cardBottom - cardTop,
-    16,
+    inset,
+    inset,
+    size - inset * 2,
+    size - inset * 2,
+    14,
   );
   context.fill();
   context.stroke();
+
+  context.save();
+  context.beginPath();
+  context.roundRect(
+    inset,
+    inset,
+    size - inset * 2,
+    size - inset * 2,
+    14,
+  );
+  context.clip();
+  context.fillStyle = "#1b1b2a";
+  context.fillRect(inset, inset, size - inset * 2, titleBarHeight);
+  context.strokeStyle = "#313244";
+  context.beginPath();
+  context.moveTo(inset, inset + titleBarHeight);
+  context.lineTo(frameRight, inset + titleBarHeight);
+  context.stroke();
+  ["#f38ba8", "#f9e2af", "#a6e3a1"].forEach((color, index) => {
+    context.fillStyle = color;
+    context.beginPath();
+    context.arc(inset + 25 + index * 16, inset + 24, 4.5, 0, Math.PI * 2);
+    context.fill();
+  });
+  context.restore();
+
   context.fillStyle = "#cba6f7";
   const longestLine = Math.max(...lines.map((line) => Array.from(line).length));
   const cowFontSize = Math.max(
     20,
-    Math.min(28, (size - 120) / ((longestLine + 2) * 0.61)),
+    Math.min(28, (size - 108) / ((longestLine + 2) * 0.61)),
   );
   const lineHeight = Math.ceil(cowFontSize * 1.4);
   context.font = `400 ${cowFontSize}px 'JetBrains Mono', monospace`;
   const contentHeight = lines.length * lineHeight;
-  const contentTop = cardTop + 42;
-  const contentBottom = cardBottom - 82;
+  const contentTop = inset + titleBarHeight + 42;
+  const contentBottom = frameBottom - 70;
   const startY =
     contentTop + Math.max(0, (contentBottom - contentTop - contentHeight) / 2);
   lines.forEach((line, index) =>
-    context.fillText(line, 60, startY + index * lineHeight),
+    context.fillText(line, inset + 32, startY + index * lineHeight),
   );
   context.fillStyle = "#6c7086";
   context.font = "13px 'JetBrains Mono', monospace";
-  context.fillText(strings().statusFresh, 60, cardBottom - 28);
+  context.fillText(strings().statusFresh, inset + 32, frameBottom - 28);
+
+  // Set the domain into the frame itself, leaving the title bar unlabelled.
+  context.font = "500 14px 'JetBrains Mono', monospace";
+  const domain = "webfortune.app";
+  const domainWidth = context.measureText(domain).width;
+  const domainX = (size - domainWidth) / 2;
+  context.fillStyle = "#1e1e2e";
+  context.fillRect(domainX - 9, frameBottom - 8, domainWidth + 18, 16);
+  context.fillStyle = "#a6adc8";
+  context.fillText(domain, domainX, frameBottom + 5);
   canvas.toBlob(async (blob) => {
     if (!blob) return;
     try {
