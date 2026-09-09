@@ -83,11 +83,6 @@ body {
     letter-spacing: -3px;
   }
 }
-@media (max-width: 600px) {
-  .loader-brand {
-    --loader-scale: 1.8;
-  }
-}
 button,
 select,
 a {
@@ -447,7 +442,7 @@ kbd {
 footer {
   margin-top: auto;
   border-top: 1px solid #313244;
-  padding: 26px 0 32px;
+  padding: 26px 0 24px;
   display: flex;
   justify-content: space-between;
   color: var(--overlay);
@@ -640,41 +635,83 @@ footer {
     font-size: 9px;
   }
 }
-@media (min-width: 601px) and (max-height: 850px) {
+@media (min-width: 601px) and (max-height: 1000px) {
   .header {
-    height: 78px;
+    height: 88px;
   }
   main {
-    margin-top: 18px;
-    margin-bottom: 28px;
+    margin-top: 22px;
+    margin-bottom: 32px;
   }
   .intro {
-    margin-bottom: 22px;
+    margin-bottom: 26px;
   }
   .eyebrow {
-    margin-bottom: 14px;
+    margin-bottom: 16px;
   }
   h1 {
-    font-size: 50px;
+    font-size: 56px;
+    margin-bottom: 14px;
+  }
+  .description {
+    line-height: 1.6;
+  }
+  .terminal-body {
+    padding-top: 20px;
+  }
+  .fortune-stage {
+    min-height: 240px;
+    padding: 24px 0;
+  }
+  .controls {
+    margin-top: 18px;
+  }
+  .hint {
+    margin-top: 18px;
+  }
+  footer {
+    padding: 20px 0 24px;
+  }
+}
+@media (min-width: 601px) and (max-height: 920px) {
+  .header {
+    height: 74px;
+  }
+  main {
+    margin-top: 16px;
+    margin-bottom: 24px;
+  }
+  .intro {
+    margin-bottom: 20px;
+  }
+  .eyebrow {
     margin-bottom: 12px;
+  }
+  h1 {
+    font-size: 48px;
+    margin-bottom: 10px;
   }
   .description {
     line-height: 1.5;
   }
   .terminal-body {
-    padding-top: 18px;
+    padding-top: 16px;
   }
   .fortune-stage {
     min-height: 220px;
-    padding: 22px 0;
+    padding: 18px 0;
+  }
+  .fortune-stage pre {
+    font-size: 13px;
+    line-height: 1.5;
   }
   .controls {
-    margin-top: 16px;
-  }
-  .hint {
     margin-top: 14px;
   }
+  .hint {
+    margin-top: 12px;
+  }
   footer {
-    padding: 18px 0 22px;
+    padding: 13px 0 15px;
   }
 }
