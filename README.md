@@ -4,6 +4,14 @@ A little wisdom. A lot of moo. A Rust `fortune` API on AWS and a Catppuccin Moch
 
 Production: [webfortune.app](https://webfortune.app/)
 
+## Screenshots
+
+| English | Deutsch |
+| --- | --- |
+| ![English fortune](docs/screenshots/webfortune-en.png) | ![German fortune](docs/screenshots/webfortune-de.png) |
+| Español | Português |
+| ![Spanish fortune](docs/screenshots/webfortune-es.png) | ![Portuguese fortune](docs/screenshots/webfortune-pt.png) |
+
 The browser renders fortunes in a responsive cowsay-style ASCII bubble, with category selection, copy, keyboard shortcuts, and accessible loading/error states. Fortune text is always rendered as text, never HTML.
 
 ## Local development
