@@ -99,10 +99,20 @@ fn locale_path_from(data_dir: &Path, locale: &LocaleConfig) -> Option<PathBuf> {
 }
 
 fn locale_path(locale: &LocaleConfig) -> Option<PathBuf> {
-    let data_dir = env::var_os("FORTUNE_DATA_DIR")
+    locale_path_from(&fortune_data_dir(), locale)
+}
+
+fn fortune_data_dir() -> PathBuf {
+    env::var_os("FORTUNE_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_FORTUNE_DATA_DIR));
-    locale_path_from(&data_dir, locale)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_FORTUNE_DATA_DIR))
+}
+
+fn is_localized_database(name: &str) -> bool {
+    LOCALES
+        .iter()
+        .filter_map(|locale| locale.database)
+        .any(|database| database == name)
 }
 
 fn parse_fortune_files(bytes: Vec<u8>) -> Result<HashSet<String>, String> {
@@ -130,19 +140,40 @@ async fn get_fortune_files(locale: &LocaleConfig) -> Result<HashSet<String>, Str
         return Err("Failed to load fortune categories.".to_string());
     }
 
-    parse_fortune_files(output.stderr)
+    let mut files = parse_fortune_files(output.stderr)?;
+    if locale.id == "en" {
+        files.retain(|name| !is_localized_database(name));
+    }
+    Ok(files)
 }
 
 async fn get_fortune(locale: &LocaleConfig, category: &str) -> Result<String, String> {
     let locale_path = locale_path(locale);
     let args = if category.is_empty() && locale_path.is_none() {
-        Vec::new()
+        let mut categories = get_fortune_files(locale)
+            .await?
+            .into_iter()
+            .collect::<Vec<_>>();
+        categories.sort_unstable();
+        let mut args = vec!["--".to_string()];
+        args.extend(categories.into_iter().map(|category| {
+            fortune_data_dir()
+                .join(category)
+                .to_string_lossy()
+                .into_owned()
+        }));
+        args
     } else if category.is_empty() {
         vec![locale_path.unwrap().to_string_lossy().into_owned()]
     } else {
         let path = locale_path
             .map(|path| path.join(category).to_string_lossy().into_owned())
-            .unwrap_or_else(|| category.to_string());
+            .unwrap_or_else(|| {
+                fortune_data_dir()
+                    .join(category)
+                    .to_string_lossy()
+                    .into_owned()
+            });
         vec!["--".to_string(), path]
     };
     let output = run_fortune(args).await?;
@@ -381,7 +412,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_locale, handle_request, locale_path_from, parse_fortune_files, parse_query};
+    use super::{
+        get_locale, handle_request, is_localized_database, locale_path_from, parse_fortune_files,
+        parse_query,
+    };
     use hyper::{Request, StatusCode};
     use std::path::Path;
 
@@ -454,5 +488,14 @@ mod tests {
         assert!(categories.contains("kinderzitate"));
         assert!(categories.contains("zitate"));
         assert!(!categories.contains("kinderzitate.u8"));
+    }
+
+    #[test]
+    fn identifies_every_configured_non_english_database() {
+        assert!(is_localized_database("de"));
+        assert!(is_localized_database("es"));
+        assert!(is_localized_database("brasil"));
+        assert!(!is_localized_database("wisdom"));
+        assert!(!is_localized_database("computers"));
     }
 }
