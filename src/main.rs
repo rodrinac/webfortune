@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -28,29 +29,31 @@ struct LocaleResponse {
 struct LocaleConfig {
     id: &'static str,
     name: &'static str,
-    path: Option<&'static str>,
+    database: Option<&'static str>,
 }
+
+const DEFAULT_FORTUNE_DATA_DIR: &str = "/usr/share/games/fortunes";
 
 const LOCALES: [LocaleConfig; 4] = [
     LocaleConfig {
         id: "en",
         name: "English",
-        path: None,
+        database: None,
     },
     LocaleConfig {
         id: "de",
         name: "Deutsch",
-        path: Some("/usr/share/games/fortunes/de"),
+        database: Some("de"),
     },
     LocaleConfig {
         id: "es",
         name: "Español",
-        path: Some("/usr/share/games/fortunes/es"),
+        database: Some("es"),
     },
     LocaleConfig {
         id: "pt",
         name: "Português",
-        path: Some("/usr/share/games/fortunes/brasil"),
+        database: Some("brasil"),
     },
 ];
 
@@ -91,6 +94,17 @@ fn get_locale(locale: &str) -> Option<&'static LocaleConfig> {
     LOCALES.iter().find(|config| config.id == locale)
 }
 
+fn locale_path_from(data_dir: &Path, locale: &LocaleConfig) -> Option<PathBuf> {
+    locale.database.map(|database| data_dir.join(database))
+}
+
+fn locale_path(locale: &LocaleConfig) -> Option<PathBuf> {
+    let data_dir = env::var_os("FORTUNE_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_FORTUNE_DATA_DIR));
+    locale_path_from(&data_dir, locale)
+}
+
 fn parse_fortune_files(bytes: Vec<u8>) -> Result<HashSet<String>, String> {
     String::from_utf8(bytes)
         .map_err(|_| "Failed to parse fortune categories.".to_string())
@@ -108,9 +122,8 @@ fn parse_fortune_files(bytes: Vec<u8>) -> Result<HashSet<String>, String> {
 }
 
 async fn get_fortune_files(locale: &LocaleConfig) -> Result<HashSet<String>, String> {
-    let args = locale
-        .path
-        .map(|path| vec!["-f".to_string(), path.to_string()])
+    let args = locale_path(locale)
+        .map(|path| vec!["-f".to_string(), path.to_string_lossy().into_owned()])
         .unwrap_or_else(|| vec!["-f".to_string()]);
     let output = run_fortune(args).await?;
     if !output.status.success() {
@@ -121,14 +134,14 @@ async fn get_fortune_files(locale: &LocaleConfig) -> Result<HashSet<String>, Str
 }
 
 async fn get_fortune(locale: &LocaleConfig, category: &str) -> Result<String, String> {
-    let args = if category.is_empty() && locale.path.is_none() {
+    let locale_path = locale_path(locale);
+    let args = if category.is_empty() && locale_path.is_none() {
         Vec::new()
     } else if category.is_empty() {
-        vec![locale.path.unwrap().to_string()]
+        vec![locale_path.unwrap().to_string_lossy().into_owned()]
     } else {
-        let path = locale
-            .path
-            .map(|path| format!("{path}/{category}"))
+        let path = locale_path
+            .map(|path| path.join(category).to_string_lossy().into_owned())
             .unwrap_or_else(|| category.to_string());
         vec!["--".to_string(), path]
     };
@@ -368,8 +381,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_request, parse_fortune_files, parse_query};
+    use super::{get_locale, handle_request, locale_path_from, parse_fortune_files, parse_query};
     use hyper::{Request, StatusCode};
+    use std::path::Path;
+
+    #[test]
+    fn builds_localized_database_paths_from_the_configured_root() {
+        let root = Path::new("/opt/homebrew/share/games/fortunes");
+        assert_eq!(
+            locale_path_from(root, get_locale("de").unwrap()).unwrap(),
+            root.join("de")
+        );
+        assert_eq!(
+            locale_path_from(root, get_locale("pt").unwrap()).unwrap(),
+            root.join("brasil")
+        );
+        assert!(locale_path_from(root, get_locale("en").unwrap()).is_none());
+    }
 
     #[tokio::test]
     async fn routes_and_errors_preserve_cors() {
