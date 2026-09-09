@@ -373,7 +373,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .serve_connection(io, service_fn(move |req| handle_request(req, cors.clone())))
                 .await
             {
-                println!("Error serving connection: {:?}", err);
+                println!("Error serving connection: {:?}", err.to_string());
             }
         });
     }
