@@ -12,28 +12,38 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]')) &&
-        (github.event_name != 'pull_request' || github.head_ref != 'chore/version-bump')
-      }}
+    env:
+      SKIP_VALIDATION: >-
+        ${{
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip version-bump]')) ||
+          (github.event_name == 'pull_request' && github.head_ref == 'chore/version-bump')
+        }}
 
     steps:
+      - name: Accept version bump
+        if: env.SKIP_VALIDATION == 'true'
+        run: echo "Version-only change; validation completed by the source PR."
+
       - name: Checkout repository
+        if: env.SKIP_VALIDATION != 'true'
         uses: actions/checkout@v5
 
       - name: Install stable Rust
+        if: env.SKIP_VALIDATION != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - name: Check formatting
+        if: env.SKIP_VALIDATION != 'true'
         run: cargo fmt --check
 
       - name: Lint
+        if: env.SKIP_VALIDATION != 'true'
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
+        if: env.SKIP_VALIDATION != 'true'
         run: cargo test --all-targets
 
   web:
