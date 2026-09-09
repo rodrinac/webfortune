@@ -74,12 +74,24 @@ test("loads a fortune, selects categories, and stays within the viewport", async
   await expect
     .poll(() => page.evaluate(() => window.__copiedScreenshotType))
     .toBe("image/png");
-  const screenshotSize = await page.evaluate(async () => {
+  const screenshotGeometry = await page.evaluate(async () => {
     const image = await createImageBitmap(window.__copiedScreenshotBlob);
-    return [image.width, image.height];
+    const terminal = document.querySelector("#terminal").getBoundingClientRect();
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    return {
+      imageWidth: image.width,
+      imageHeight: image.height,
+      scale,
+      terminalAspectRatio: terminal.width / terminal.height,
+    };
   });
-  expect(screenshotSize[0]).toBe(screenshotSize[1]);
-  expect(screenshotSize[0]).toBeGreaterThanOrEqual(900);
+  expect(screenshotGeometry.imageWidth).toBeGreaterThanOrEqual(900);
+  const exportedFrameWidth = screenshotGeometry.imageWidth / screenshotGeometry.scale - 48;
+  const exportedFrameHeight = screenshotGeometry.imageHeight / screenshotGeometry.scale - 48;
+  expect(exportedFrameWidth / exportedFrameHeight).toBeCloseTo(
+    screenshotGeometry.terminalAspectRatio,
+    2,
+  );
   if (test.info().project.name === "mobile") {
     const screenshotBytes = await page.evaluate(async () =>
       Array.from(

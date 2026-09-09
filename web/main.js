@@ -408,18 +408,23 @@ screenshot.addEventListener("click", async () => {
   const lines = cowsay(fortune || displayed, 42).split("\n");
   const scale = Math.min(window.devicePixelRatio || 1, 2);
   const canvas = document.createElement("canvas");
-  const size = 900;
+  const canvasWidth = 900;
   const inset = 24;
   const frameRadius = Math.round(inset * 0.42);
-  const frameRight = size - inset;
-  const frameBottom = size - inset;
+  const terminalBounds = $("terminal").getBoundingClientRect();
+  const terminalAspectRatio = terminalBounds.width / terminalBounds.height;
+  const frameWidth = canvasWidth - inset * 2;
+  const frameHeight = Math.round(frameWidth / terminalAspectRatio);
+  const canvasHeight = frameHeight + inset * 2;
+  const frameRight = inset + frameWidth;
+  const frameBottom = inset + frameHeight;
   const titleBarHeight = 48;
-  canvas.width = size * scale;
-  canvas.height = size * scale;
+  canvas.width = canvasWidth * scale;
+  canvas.height = canvasHeight * scale;
   const context = canvas.getContext("2d");
   context.scale(scale, scale);
   context.fillStyle = "#1e1e2e";
-  context.fillRect(0, 0, size, size);
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
 
   // Print the terminal itself, rather than placing it inside a branded card.
   context.fillStyle = "#181825";
@@ -429,8 +434,8 @@ screenshot.addEventListener("click", async () => {
   context.roundRect(
     inset,
     inset,
-    size - inset * 2,
-    size - inset * 2,
+    frameWidth,
+    frameHeight,
     frameRadius,
   );
   context.fill();
@@ -441,13 +446,13 @@ screenshot.addEventListener("click", async () => {
   context.roundRect(
     inset,
     inset,
-    size - inset * 2,
-    size - inset * 2,
+    frameWidth,
+    frameHeight,
     frameRadius,
   );
   context.clip();
   context.fillStyle = "#1b1b2a";
-  context.fillRect(inset, inset, size - inset * 2, titleBarHeight);
+  context.fillRect(inset, inset, frameWidth, titleBarHeight);
   context.strokeStyle = "#313244";
   context.beginPath();
   context.moveTo(inset, inset + titleBarHeight);
@@ -474,18 +479,23 @@ screenshot.addEventListener("click", async () => {
 
   context.fillStyle = "#cba6f7";
   const longestLine = Math.max(...lines.map((line) => Array.from(line).length));
-  const contentWidth = size - (inset + 32) * 2;
+  const contentWidth = frameWidth - 64;
+  const contentTop = promptY + 34;
+  const contentBottom = frameBottom - 70;
+  const contentHeight = contentBottom - contentTop;
   const cowFontSize = Math.max(
-    20,
-    Math.min(28, contentWidth / ((longestLine + 2) * 0.61)),
+    12,
+    Math.min(
+      28,
+      contentWidth / ((longestLine + 2) * 0.61),
+      contentHeight / (lines.length * 1.4),
+    ),
   );
   const lineHeight = Math.ceil(cowFontSize * 1.4);
   context.font = `400 ${cowFontSize}px 'JetBrains Mono', monospace`;
-  const contentHeight = lines.length * lineHeight;
-  const contentTop = promptY + 34;
-  const contentBottom = frameBottom - 70;
+  const cowHeight = lines.length * lineHeight;
   const startY =
-    contentTop + Math.max(0, (contentBottom - contentTop - contentHeight) / 2);
+    contentTop + Math.max(0, (contentHeight - cowHeight) / 2);
   lines.forEach((line, index) =>
     context.fillText(line, inset + 32, startY + index * lineHeight),
   );
@@ -497,7 +507,7 @@ screenshot.addEventListener("click", async () => {
   context.font = "500 14px 'JetBrains Mono', monospace";
   const domain = "webfortune.app";
   const domainWidth = context.measureText(domain).width;
-  const domainX = (size - domainWidth) / 2;
+  const domainX = (canvasWidth - domainWidth) / 2;
   context.fillStyle = "#1e1e2e";
   context.fillRect(domainX - 9, frameBottom - 8, domainWidth + 18, 16);
   context.fillStyle = "#a6adc8";
