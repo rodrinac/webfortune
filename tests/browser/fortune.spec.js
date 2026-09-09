@@ -4,6 +4,8 @@ import { writeFile } from "node:fs/promises";
 test("loads a fortune, selects categories, and stays within the viewport", async ({
   page,
 }) => {
+  const isDesktop = test.info().project.name.startsWith("desktop-");
+  const isMobile = test.info().project.name.startsWith("mobile-");
   const requests = [];
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -23,7 +25,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       contentType: "text/plain",
       body: url.searchParams.has("category")
         ? "A computer is a very patient cow."
-        : "The secret of getting ahead is getting started.",
+        : "The secret of getting ahead is getting started.\nKeep moving forward.",
     });
   });
   await page.addInitScript(() => {
@@ -55,8 +57,14 @@ test("loads a fortune, selects categories, and stays within the viewport", async
   await page.goto("/");
   await expect(page.locator("#cow")).toContainText("(oo)");
   await expect(page.locator("#fortune-text")).toHaveText(
-    "The secret of getting ahead is getting started.",
+    "The secret of getting ahead is getting started.\nKeep moving forward.",
   );
+  if (isDesktop)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight <= innerHeight,
+      ),
+    ).toBe(true);
   await page.selectOption("#category", "computers");
   await expect(page.locator("#fortune-text")).toContainText("A computer");
   expect(requests).toContain("?locale=en&category=computers");
@@ -92,7 +100,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
     screenshotGeometry.terminalAspectRatio,
     2,
   );
-  if (test.info().project.name === "mobile") {
+  if (test.info().project.name === "mobile-regular") {
     const screenshotBytes = await page.evaluate(async () =>
       Array.from(
         new Uint8Array(await window.__copiedScreenshotBlob.arrayBuffer()),
@@ -109,7 +117,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  if (test.info().project.name === "mobile") {
+  if (isMobile) {
     const localeBox = await page.locator(".locale-field").boundingBox();
     const categoryBox = await page.locator(".category-field").boundingBox();
     const refreshBox = await page.locator("#refresh").boundingBox();
@@ -145,7 +153,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       { height: "52px", padding: "8px 10px" },
     ]);
   }
-  if (test.info().project.name === "desktop") {
+  if (isDesktop) {
     expect(
       await page.evaluate(
         () => document.documentElement.scrollHeight <= innerHeight,
