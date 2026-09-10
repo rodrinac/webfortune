@@ -406,7 +406,8 @@ screenshot.addEventListener("click", async () => {
   // A slightly narrower bubble leaves room to render the entire cow at a
   // comfortably readable size in the fixed square terminal print.
   const lines = cowsay(fortune || displayed, 42).split("\n");
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  // Export at twice the display density so shared images stay crisp.
+  const scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
   const canvas = document.createElement("canvas");
   const canvasWidth = 900;
   const inset = 24;
