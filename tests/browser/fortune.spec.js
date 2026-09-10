@@ -85,7 +85,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
   const screenshotGeometry = await page.evaluate(async () => {
     const image = await createImageBitmap(window.__copiedScreenshotBlob);
     const terminal = document.querySelector("#terminal").getBoundingClientRect();
-    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    const scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
     return {
       imageWidth: image.width,
       imageHeight: image.height,
@@ -93,7 +93,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       terminalAspectRatio: terminal.width / terminal.height,
     };
   });
-  expect(screenshotGeometry.imageWidth).toBeGreaterThanOrEqual(900);
+  expect(screenshotGeometry.imageWidth).toBeGreaterThanOrEqual(1800);
   const exportedFrameWidth = screenshotGeometry.imageWidth / screenshotGeometry.scale - 48;
   const exportedFrameHeight = screenshotGeometry.imageHeight / screenshotGeometry.scale - 48;
   expect(exportedFrameWidth / exportedFrameHeight).toBeCloseTo(
