@@ -323,6 +323,7 @@ h1 span {
   top: 10px;
   color: var(--subtext);
   pointer-events: none;
+  transform: translateY(-15%);
 }
 select {
   appearance: none;
@@ -504,7 +505,7 @@ footer {
     letter-spacing: -1.8px;
   }
   .page {
-    padding: 0 22px;
+    padding: 0 33px;
   }
   .header {
     height: 86px;
@@ -580,6 +581,14 @@ footer {
   }
   select {
     width: 100%;
+  }
+  .locale-field select {
+    width: 100%;
+  }
+  .select-wrap > span {
+    top: 50%;
+    right: 12px;
+    transform: translateY(-65%);
   }
   .actions {
     grid-column: 1 / -1;
@@ -696,7 +705,7 @@ footer {
   }
   .fortune-stage pre {
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.4;
   }
   .controls {
     margin-top: 14px;

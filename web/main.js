@@ -409,7 +409,7 @@ screenshot.addEventListener("click", async () => {
   // Export at twice the display density so shared images stay crisp.
   const scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
   const canvas = document.createElement("canvas");
-  const canvasWidth = 900;
+  const canvasWidth = 1080;
   const inset = 24;
   const frameRadius = Math.round(inset * 0.42);
   const terminalBounds = $("terminal").getBoundingClientRect();
@@ -485,20 +485,22 @@ screenshot.addEventListener("click", async () => {
   const contentBottom = frameBottom - 70;
   const contentHeight = contentBottom - contentTop;
   const cowFontSize = Math.max(
-    12,
+    18,
     Math.min(
-      28,
+      42,
       contentWidth / ((longestLine + 2) * 0.61),
-      contentHeight / (lines.length * 1.4),
+      contentHeight / (lines.length * 1.15),
     ),
   );
-  const lineHeight = Math.ceil(cowFontSize * 1.4);
+  const lineHeight = Math.ceil(cowFontSize * 1.15);
   context.font = `400 ${cowFontSize}px 'JetBrains Mono', monospace`;
   const cowHeight = lines.length * lineHeight;
   const startY =
     contentTop + Math.max(0, (contentHeight - cowHeight) / 2);
+  const cowWidth = Math.max(...lines.map((line) => context.measureText(line).width));
+  const cowX = (canvasWidth - cowWidth) / 2;
   lines.forEach((line, index) =>
-    context.fillText(line, inset + 32, startY + index * lineHeight),
+    context.fillText(line, cowX, startY + index * lineHeight),
   );
   context.fillStyle = "#6c7086";
   context.font = "13px 'JetBrains Mono', monospace";

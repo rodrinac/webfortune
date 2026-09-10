@@ -93,7 +93,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       terminalAspectRatio: terminal.width / terminal.height,
     };
   });
-  expect(screenshotGeometry.imageWidth).toBeGreaterThanOrEqual(1800);
+  expect(screenshotGeometry.imageWidth).toBeGreaterThanOrEqual(2160);
   const exportedFrameWidth = screenshotGeometry.imageWidth / screenshotGeometry.scale - 48;
   const exportedFrameHeight = screenshotGeometry.imageHeight / screenshotGeometry.scale - 48;
   expect(exportedFrameWidth / exportedFrameHeight).toBeCloseTo(
@@ -130,6 +130,18 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       });
     expect(localeBox.y).toBe(categoryBox.y);
     expect(localeBox.x + localeBox.width).toBeLessThanOrEqual(categoryBox.x);
+    expect(
+      await page.locator(".locale-field .select-wrap > span").evaluate((arrow) => {
+        const arrowBounds = arrow.getBoundingClientRect();
+        const selectBounds = arrow.parentElement.querySelector("select").getBoundingClientRect();
+        return (
+          arrowBounds.left >= selectBounds.left &&
+          arrowBounds.right <= selectBounds.right &&
+          arrowBounds.top >= selectBounds.top &&
+          arrowBounds.bottom <= selectBounds.bottom
+        );
+      }),
+    ).toBe(true);
     expect(refreshLabelBox.height).toBeLessThan(refreshBox.height / 2);
     expect(refreshStyle.fontFamily).toContain("DM Sans");
     expect(refreshStyle.fontSize).toBe("12px");
