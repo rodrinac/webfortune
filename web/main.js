@@ -411,6 +411,7 @@ screenshot.addEventListener("click", async () => {
   const canvas = document.createElement("canvas");
   const canvasWidth = 1080;
   const inset = 24;
+  const chromeScale = 2;
   const frameRadius = Math.round(inset * 0.42);
   const terminalBounds = $("terminal").getBoundingClientRect();
   const terminalAspectRatio = terminalBounds.width / terminalBounds.height;
@@ -419,7 +420,7 @@ screenshot.addEventListener("click", async () => {
   const canvasHeight = frameHeight + inset * 2;
   const frameRight = inset + frameWidth;
   const frameBottom = inset + frameHeight;
-  const titleBarHeight = 48;
+  const titleBarHeight = 48 * chromeScale;
   canvas.width = canvasWidth * scale;
   canvas.height = canvasHeight * scale;
   const context = canvas.getContext("2d");
@@ -430,7 +431,7 @@ screenshot.addEventListener("click", async () => {
   // Print the terminal itself, rather than placing it inside a branded card.
   context.fillStyle = "#181825";
   context.strokeStyle = "#665f52";
-  context.lineWidth = 1;
+  context.lineWidth = chromeScale;
   context.beginPath();
   context.roundRect(
     inset,
@@ -455,6 +456,7 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#1b1b2a";
   context.fillRect(inset, inset, frameWidth, titleBarHeight);
   context.strokeStyle = "#313244";
+  context.lineWidth = chromeScale;
   context.beginPath();
   context.moveTo(inset, inset + titleBarHeight);
   context.lineTo(frameRight, inset + titleBarHeight);
@@ -462,27 +464,37 @@ screenshot.addEventListener("click", async () => {
   ["#f38ba8", "#f9e2af", "#a6e3a1"].forEach((color, index) => {
     context.fillStyle = color;
     context.beginPath();
-    context.arc(inset + 25 + index * 16, inset + 24, 4.5, 0, Math.PI * 2);
+    context.arc(
+      inset + (25 + index * 16) * chromeScale,
+      inset + 24 * chromeScale,
+      4.5 * chromeScale,
+      0,
+      Math.PI * 2,
+    );
     context.fill();
   });
   context.restore();
 
-  const promptX = inset + 32;
-  const promptY = inset + titleBarHeight + 31;
-  context.font = "400 14px 'JetBrains Mono', monospace";
+  const promptX = inset + 32 * chromeScale;
+  const promptY = inset + titleBarHeight + 31 * chromeScale;
+  context.font = `400 ${14 * chromeScale}px 'JetBrains Mono', monospace`;
   context.fillStyle = "#a6e3a1";
   context.fillText("❯", promptX, promptY);
   context.fillStyle = "#a6adc8";
-  context.fillText("fortune | cowsay", promptX + 27, promptY);
+  context.fillText("fortune | cowsay", promptX + 27 * chromeScale, promptY);
   const commandWidth = context.measureText("fortune | cowsay").width;
   context.fillStyle = "#f9e2af";
-  context.fillText("▍", promptX + 35 + commandWidth, promptY);
+  context.fillText(
+    "▍",
+    promptX + 35 * chromeScale + commandWidth,
+    promptY,
+  );
 
   context.fillStyle = "#cba6f7";
   const longestLine = Math.max(...lines.map((line) => Array.from(line).length));
-  const contentWidth = frameWidth - 64;
-  const contentTop = promptY + 34;
-  const contentBottom = frameBottom - 70;
+  const contentWidth = frameWidth - 64 * chromeScale;
+  const contentTop = promptY + 34 * chromeScale;
+  const contentBottom = frameBottom - 70 * chromeScale;
   const contentHeight = contentBottom - contentTop;
   const cowFontSize = Math.max(
     18,
@@ -503,18 +515,27 @@ screenshot.addEventListener("click", async () => {
     context.fillText(line, cowX, startY + index * lineHeight),
   );
   context.fillStyle = "#6c7086";
-  context.font = "13px 'JetBrains Mono', monospace";
-  context.fillText(strings().statusFresh, inset + 32, frameBottom - 28);
+  context.font = `400 ${13 * chromeScale}px 'JetBrains Mono', monospace`;
+  context.fillText(
+    strings().statusFresh,
+    inset + 32 * chromeScale,
+    frameBottom - 28 * chromeScale,
+  );
 
   // Set the domain into the frame itself, leaving the title bar unlabelled.
-  context.font = "500 14px 'JetBrains Mono', monospace";
+  context.font = `500 ${14 * chromeScale}px 'JetBrains Mono', monospace`;
   const domain = "webfortune.app";
   const domainWidth = context.measureText(domain).width;
   const domainX = (canvasWidth - domainWidth) / 2;
   context.fillStyle = "#1e1e2e";
-  context.fillRect(domainX - 9, frameBottom - 8, domainWidth + 18, 16);
+  context.fillRect(
+    domainX - 9 * chromeScale,
+    frameBottom - 8 * chromeScale,
+    domainWidth + 18 * chromeScale,
+    16 * chromeScale,
+  );
   context.fillStyle = "#a6adc8";
-  context.fillText(domain, domainX, frameBottom + 5);
+  context.fillText(domain, domainX, frameBottom + 5 * chromeScale);
   canvas.toBlob(async (blob) => {
     if (!blob) return;
     try {
