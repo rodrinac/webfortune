@@ -12,11 +12,11 @@ Production: [webfortune.app](https://webfortune.app/)
 | Español | Português |
 | ![Spanish fortune](docs/screenshots/webfortune-es.png) | ![Portuguese fortune](docs/screenshots/webfortune-pt.png) |
 
-The browser renders fortunes in a responsive cowsay-style ASCII bubble, with category selection, copy, keyboard shortcuts, and accessible loading/error states. Fortune text is always rendered as text, never HTML.
+The browser renders fortunes in a responsive cowsay-style ASCII bubble, with cow and category selection, copy, keyboard shortcuts, and accessible loading/error states. Fortune text is always rendered as text, never HTML.
 
 ## Local development
 
-Install Rust, Node.js 24+, and `fortune` (`brew install fortune` on macOS; `sudo apt-get install fortune-mod fortunes-min` on Debian/Ubuntu, adding `/usr/games` to PATH).
+Install Rust, Node.js 24+, `fortune`, and `cowsay` (`brew install fortune cowsay` on macOS; `sudo apt-get install fortune-mod fortunes-min cowsay` on Debian/Ubuntu, adding `/usr/games` to PATH).
 
 ```sh
 cargo run
@@ -41,6 +41,8 @@ The container includes the executable and non-offensive `fortunes-min` data. No 
 | `GET /` | Random fortune as UTF-8 plain text |
 | `GET /?category=computers` | Fortune from an installed category |
 | `GET /categories` | JSON array of installed category names |
+| `GET /cows` | JSON array of installed cow names |
+| `GET /cows/{name}` | ASCII artwork for an installed cow |
 | `GET /health` | `{"status":"ok"}` when fortune data is available |
 
 Only GET is supported by the application. API Gateway handles browser OPTIONS requests. Invalid queries return 400, unknown routes/categories 404, other methods 405, and an unavailable fortune executable/data returns 503. Each command has a three-second timeout; only installed categories are passed as arguments.

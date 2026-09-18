@@ -25,6 +25,12 @@ test("preserves accented fortune text", () => {
   const localized = "À vaca é sábia; amanhã dirá: î, ó, ü, ñ.";
   assert.ok(cowsay(localized).includes(localized));
 });
+test("renders selected cow artwork", () => {
+  const dragon = "  \\\n   \\ dragon";
+  const rendered = cowsay("Roar.", 44, dragon);
+  assert.ok(rendered.endsWith(dragon));
+  assert.ok(!rendered.includes("(oo)"));
+});
 test("strips terminal controls without treating content as markup", () => {
   assert.ok(cowsay("<script>alert(1)</script>\u0007").includes("<script>"));
   assert.ok(!cowsay("hi\u0007").includes("\u0007"));

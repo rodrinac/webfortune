@@ -16,7 +16,7 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(transparent)]
-struct CategoriesResponse {
+struct StringSetResponse {
     data: HashSet<String>,
 }
 
@@ -88,6 +88,68 @@ async fn run_fortune(args: Vec<String>) -> Result<Output, String> {
     .await
     .map_err(|_| "Failed to load fortune.".to_string())?
     .map_err(|_| "Failed to load fortune.".to_string())
+}
+
+async fn run_cowsay(args: &[&str]) -> Result<Output, String> {
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        Command::new("cowsay")
+            .args(args)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .map_err(|_| "Failed to load cows.".to_string())?
+    .map_err(|_| "Failed to load cows.".to_string())
+}
+
+fn valid_resource_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|character| {
+            character.is_ascii_alphanumeric()
+                || character == b'-'
+                || character == b'_'
+                || character == b'.'
+        })
+}
+
+fn parse_cow_names(bytes: Vec<u8>) -> Result<HashSet<String>, String> {
+    String::from_utf8(bytes)
+        .map_err(|_| "Failed to parse cows.".to_string())
+        .map(|output| {
+            output
+                .lines()
+                .filter(|line| !line.starts_with("Cow files in "))
+                .flat_map(str::split_whitespace)
+                .filter(|name| valid_resource_name(name))
+                .map(str::to_string)
+                .collect()
+        })
+}
+
+async fn get_cows() -> Result<HashSet<String>, String> {
+    let output = run_cowsay(&["-l"]).await?;
+    if !output.status.success() {
+        return Err("Failed to load cows.".to_string());
+    }
+    parse_cow_names(output.stdout)
+}
+
+fn parse_cow_art(bytes: Vec<u8>) -> Result<String, String> {
+    let output = String::from_utf8(bytes).map_err(|_| "Failed to parse cow.".to_string())?;
+    let art = output.lines().skip(3).collect::<Vec<_>>().join("\n");
+    if art.is_empty() {
+        return Err("Failed to parse cow.".to_string());
+    }
+    Ok(art)
+}
+
+async fn get_cow(name: &str) -> Result<String, String> {
+    let output = run_cowsay(&["-f", name, ""]).await?;
+    if !output.status.success() {
+        return Err("Cow not found.".to_string());
+    }
+    parse_cow_art(output.stdout)
 }
 
 fn get_locale(locale: &str) -> Option<&'static LocaleConfig> {
@@ -211,14 +273,7 @@ fn parse_query(query: Option<&str>) -> Result<FortuneQuery, &'static str> {
     }
 
     let category = category.unwrap_or_default();
-    if !category.is_empty()
-        && !category.bytes().all(|character| {
-            character.is_ascii_alphanumeric()
-                || character == b'-'
-                || character == b'_'
-                || character == b'.'
-        })
-    {
+    if !category.is_empty() && !valid_resource_name(category) {
         return Err("Invalid category.\n");
     }
 
@@ -238,18 +293,25 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
     }
 
     if req.uri().path() == "/health" {
-        return Ok(match get_fortune_files(get_locale("en").unwrap()).await {
-            Ok(categories) if !categories.is_empty() => response(
-                StatusCode::OK,
-                "application/json; charset=utf-8",
-                "{\"status\":\"ok\"}\n".to_string(),
-            ),
-            _ => response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "text/plain; charset=utf-8",
-                "Fortune service unavailable.\n".to_string(),
-            ),
-        });
+        return Ok(
+            match (
+                get_fortune_files(get_locale("en").unwrap()).await,
+                get_cows().await,
+            ) {
+                (Ok(categories), Ok(cows)) if !categories.is_empty() && !cows.is_empty() => {
+                    response(
+                        StatusCode::OK,
+                        "application/json; charset=utf-8",
+                        "{\"status\":\"ok\"}\n".to_string(),
+                    )
+                }
+                _ => response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "text/plain; charset=utf-8",
+                    "Fortune service unavailable.\n".to_string(),
+                ),
+            },
+        );
     }
 
     if req.uri().path() == "/locales" {
@@ -267,6 +329,63 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
         ));
     }
 
+    if req.uri().path() == "/cows" {
+        return match get_cows().await {
+            Ok(data) => match serde_json::to_string(&StringSetResponse { data }) {
+                Ok(body) => Ok(response(
+                    StatusCode::OK,
+                    "application/json; charset=utf-8",
+                    format!("{body}\n"),
+                )),
+                Err(_) => Ok(response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "text/plain; charset=utf-8",
+                    "Failed to serialize cows.\n".to_string(),
+                )),
+            },
+            Err(error) => Ok(response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "text/plain; charset=utf-8",
+                format!("{error}\n"),
+            )),
+        };
+    }
+
+    if let Some(name) = req.uri().path().strip_prefix("/cows/") {
+        if !valid_resource_name(name) {
+            return Ok(response(
+                StatusCode::BAD_REQUEST,
+                "text/plain; charset=utf-8",
+                "Invalid cow.\n".to_string(),
+            ));
+        }
+        let cows = match get_cows().await {
+            Ok(cows) => cows,
+            Err(error) => {
+                return Ok(response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "text/plain; charset=utf-8",
+                    format!("{error}\n"),
+                ));
+            }
+        };
+        if !cows.contains(name) {
+            return Ok(response(
+                StatusCode::NOT_FOUND,
+                "text/plain; charset=utf-8",
+                "Cow not found.\n".to_string(),
+            ));
+        }
+        return match get_cow(name).await {
+            Ok(art) => Ok(response(StatusCode::OK, "text/plain; charset=utf-8", art)),
+            Err(error) => Ok(response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "text/plain; charset=utf-8",
+                format!("{error}\n"),
+            )),
+        };
+    }
+
     if req.uri().path() == "/categories" {
         let query = match parse_query(req.uri().query()) {
             Ok(query) => query,
@@ -280,7 +399,7 @@ async fn route_request<B>(req: Request<B>) -> Result<Response<String>, hyper::ht
         };
         let locale = get_locale(&query.locale).unwrap();
         return match get_fortune_files(locale).await {
-            Ok(data) => match serde_json::to_string(&CategoriesResponse { data }) {
+            Ok(data) => match serde_json::to_string(&StringSetResponse { data }) {
                 Ok(body) => Ok(response(
                     StatusCode::OK,
                     "application/json; charset=utf-8",
@@ -413,8 +532,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_locale, handle_request, is_localized_database, locale_path_from, parse_fortune_files,
-        parse_query,
+        get_locale, handle_request, is_localized_database, locale_path_from, parse_cow_art,
+        parse_cow_names, parse_fortune_files, parse_query,
     };
     use hyper::{Request, StatusCode};
     use std::path::Path;
@@ -488,6 +607,26 @@ mod tests {
         assert!(categories.contains("kinderzitate"));
         assert!(categories.contains("zitate"));
         assert!(!categories.contains("kinderzitate.u8"));
+    }
+
+    #[test]
+    fn parses_cow_names_from_common_cowsay_formats() {
+        let debian = parse_cow_names(
+            b"Cow files in /usr/share/cowsay/cows:\ndefault dragon dragon-and-cow\n".to_vec(),
+        )
+        .unwrap();
+        assert!(debian.contains("default"));
+        assert!(debian.contains("dragon-and-cow"));
+
+        let homebrew = parse_cow_names(b"default\ndragon\nthree-eyes\n".to_vec()).unwrap();
+        assert!(homebrew.contains("three-eyes"));
+    }
+
+    #[test]
+    fn removes_the_cowsay_bubble_from_cow_art() {
+        let art =
+            parse_cow_art(b" __\n<  >\n --\n  \\  ^__^\n   \\ (oo)\\_______\n".to_vec()).unwrap();
+        assert_eq!(art, "  \\  ^__^\n   \\ (oo)\\_______");
     }
 
     #[test]
