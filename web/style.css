@@ -1,5 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700;750&family=JetBrains+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
+@import "./components.css";
 
 @theme {
   --font-sans: "DM Sans", sans-serif;
@@ -106,17 +107,11 @@ a,
 select {
   outline-offset: 5px;
 }
-button:focus-visible,
-a:focus-visible,
-select:focus-visible {
+a:focus-visible {
   outline: 2px solid var(--gold);
 }
 button {
   cursor: pointer;
-}
-button:disabled {
-  cursor: wait;
-  opacity: 0.55;
 }
 .brand {
   font-size: 21px;
@@ -141,11 +136,15 @@ button:disabled {
   color: var(--gold);
 }
 .source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   color: var(--subtext);
 }
-.source-link span {
-  margin-left: 8px;
+.source-link svg {
+  width: 13px;
+  height: 13px;
   color: var(--gold);
 }
 .source-link:hover {
@@ -153,7 +152,7 @@ button:disabled {
 }
 main {
   width: 100%;
-  max-width: 744px;
+  max-width: 840px;
   margin: 37px auto 56px;
 }
 .intro {
@@ -217,6 +216,7 @@ h1 span {
 }
 .window-dots {
   display: flex;
+  flex: none;
   gap: 7px;
 }
 .window-dots i {
@@ -237,19 +237,29 @@ h1 span {
 .terminal-title .faded {
   color: var(--overlay);
 }
+.terminal-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .terminal-label {
+  flex: none;
   margin-left: auto;
   font-size: 10px;
   color: var(--overlay);
 }
 .cow-field {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   margin-left: auto;
 }
 .cow-field label {
+  margin: 0;
   font-size: 9px;
+  line-height: 1;
   color: var(--overlay);
 }
 .cow-field select {
@@ -258,6 +268,10 @@ h1 span {
   padding: 0 28px 0 10px;
   border-radius: 6px;
   font: 9px "JetBrains Mono", monospace;
+}
+.cow-field .select-wrap {
+  flex: none;
+  width: 126px;
 }
 .cow-field .select-wrap > span {
   right: 9px;
@@ -328,43 +342,29 @@ h1 span {
   vertical-align: 1px;
 }
 .controls {
+  container: controls / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) auto;
+  align-items: end;
   gap: 16px;
   margin-top: 24px;
 }
-.locale-field label,
-.category-field label {
-  font:
-    10px "JetBrains Mono",
-    monospace;
-  color: var(--subtext);
-  display: block;
-  margin-bottom: 9px;
+.locale-field,
+.category-field {
+  min-width: 0;
 }
 .select-wrap {
   position: relative;
 }
-.select-wrap > span {
-  position: absolute;
-  right: 14px;
-  top: 10px;
-  color: var(--subtext);
-  pointer-events: none;
-  transform: translateY(-15%);
+.controls .select-wrap {
+  width: 100%;
 }
 select {
-  appearance: none;
-  background: var(--mantle);
-  border: 1px solid #45475a80;
-  color: var(--text);
-  border-radius: 8px;
-  height: 44px;
-  padding: 0 38px 0 14px;
-  font-size: 12px;
-  width: 170px;
-  cursor: pointer;
+  min-width: 0;
 }
-.locale-field select {
-  width: 145px;
+.locale-field select,
+.category-field select {
+  width: 100%;
 }
 select:disabled {
   opacity: 0.6;
@@ -372,54 +372,14 @@ select:disabled {
 .actions {
   gap: 10px;
 }
-.copy-button,
-.screenshot-button,
-.refresh-button {
-  border-radius: 8px;
-  height: 44px;
-  padding: 0 18px;
-  font-size: 12px;
-  font-weight: 600;
-  transition:
-    background 0.15s,
-    transform 0.15s;
-}
 .copy-button {
-  border: 1px solid #45475a80;
-  background: transparent;
-  color: var(--subtext);
-}
-.copy-button > span:first-child {
-  font-size: 18px;
-  margin-right: 5px;
-  vertical-align: -1px;
-}
-.copy-button:hover {
-  background: var(--surface);
+  flex: none;
 }
 .screenshot-button {
-  border: 1px solid #45475a80;
-  background: transparent;
-  color: var(--subtext);
-}
-.screenshot-button:hover {
-  background: var(--surface);
-}
-.screenshot-button > span:first-child {
-  font-size: 16px;
-  margin-right: 5px;
-  vertical-align: -1px;
+  flex: none;
 }
 .refresh-button {
-  border: 1px solid var(--gold);
-  background: var(--gold);
-  color: var(--crust);
   min-width: 171px;
-}
-.refresh-button > span:first-child {
-  font-size: 20px;
-  vertical-align: -2px;
-  margin-right: 7px;
 }
 .refresh-button #refresh-label {
   font-family: "DM Sans", sans-serif;
@@ -434,30 +394,57 @@ select:disabled {
 .refresh-button:active {
   transform: translateY(1px);
 }
+@media (min-width: 601px) {
+  @container controls (max-width: 760px) {
+    .screenshot-button {
+      width: 44px;
+      padding-inline: 0;
+    }
+    .screenshot-button #screenshot-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+  }
+  @container controls (max-width: 680px) {
+    .copy-button {
+      width: 44px;
+      padding-inline: 0;
+    }
+    .copy-button #copy-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+  }
+  @container controls (max-width: 620px) {
+    .refresh-button {
+      width: 44px;
+      min-width: 44px;
+      padding-inline: 0;
+    }
+    .refresh-button #refresh-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+  }
+}
 .hint {
   text-align: center;
   color: var(--overlay);
   font-size: 11px;
   margin: 27px 0 0;
   line-height: 2;
-}
-kbd {
-  font:
-    10px "JetBrains Mono",
-    monospace;
-  border: 1px solid #45475a60;
-  padding: 2px 5px;
-  border-radius: 4px;
-  color: var(--gold);
-}
-.error {
-  padding: 14px 16px;
-  background: #f38ba80c;
-  border: 1px solid #f38ba830;
-  border-radius: 8px;
-  color: #f38ba8;
-  font-size: 13px;
-  line-height: 1.6;
 }
 footer {
   margin-top: auto;
@@ -570,6 +557,9 @@ footer {
     gap: 13px;
     height: 44px;
   }
+  .terminal-title {
+    flex: 1 1 auto;
+  }
   .terminal-label {
     display: none;
   }
@@ -581,6 +571,9 @@ footer {
     clip: rect(0, 0, 0, 0);
   }
   .cow-field select {
+    width: 104px;
+  }
+  .cow-field .select-wrap {
     width: 104px;
   }
   .terminal-body {
@@ -607,18 +600,11 @@ footer {
     gap: 15px;
     margin-top: 20px;
   }
-  .locale-field,
-  .category-field {
-    min-width: 0;
-  }
   .locale-field label,
   .category-field label {
     font-size: 10px;
   }
   select {
-    width: 100%;
-  }
-  .locale-field select {
     width: 100%;
   }
   .select-wrap > span {
@@ -631,6 +617,19 @@ footer {
     display: grid;
     grid-template-columns: 1fr 1fr 1.5fr;
     gap: 12px;
+  }
+  @container controls (max-width: 420px) {
+    .actions {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 52px;
+    }
+    .refresh-button #refresh-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
   }
   .copy-button,
   .screenshot-button,

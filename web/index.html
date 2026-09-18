@@ -50,11 +50,11 @@
           target="_blank"
           rel="noreferrer"
           ><span id="source-label">View source</span>
-          <span aria-hidden="true">↗</span></a
+          <i data-lucide="external-link" aria-hidden="true"></i></a
         >
       </header>
 
-      <main class="w-full min-w-0 max-w-[744px]">
+      <main class="w-full min-w-0 max-w-[840px]">
         <div class="intro text-center">
           <p class="eyebrow">
             <span aria-hidden="true">✦</span>
@@ -77,17 +77,19 @@
             <div class="window-dots" aria-hidden="true">
               <i></i><i></i><i></i>
             </div>
-            <span class="terminal-title"
+            <span class="terminal-title" title="https://webfortune.app"
               ><span class="faded">https://</span>webfortune<span class="faded"
                 >.app</span
               ></span
             >
             <div class="cow-field">
-              <label for="cow-style" id="cow-label">Cow</label>
+              <label data-slot="label" for="cow-style" id="cow-label">Cow</label>
               <div class="select-wrap">
-                <select id="cow-style" disabled>
+                <select data-slot="select" id="cow-style" disabled>
                   <option value="default">default</option></select
-                ><span aria-hidden="true">⌄</span>
+                ><span data-slot="select-icon" aria-hidden="true"
+                  ><i data-lucide="chevron-down"></i
+                ></span>
               </div>
             </div>
             <span id="terminal-label" class="terminal-label">~ / pasture</span>
@@ -112,39 +114,43 @@
 
         <div class="controls flex items-end justify-between">
           <div class="locale-field">
-            <label for="locale" id="locale-label">Language</label>
+            <label data-slot="label" for="locale" id="locale-label">Language</label>
             <div class="select-wrap">
-              <select id="locale" disabled></select
-              ><span aria-hidden="true">⌄</span>
+              <select data-slot="select" id="locale" disabled></select
+              ><span data-slot="select-icon" aria-hidden="true"
+                ><i data-lucide="chevron-down"></i
+              ></span>
             </div>
           </div>
           <div class="category-field">
-            <label for="category" id="category-label">A little about</label>
+            <label data-slot="label" for="category" id="category-label">A little about</label>
             <div class="select-wrap">
-              <select id="category" disabled></select
-              ><span aria-hidden="true">⌄</span>
+              <select data-slot="select" id="category" disabled></select
+              ><span data-slot="select-icon" aria-hidden="true"
+                ><i data-lucide="chevron-down"></i
+              ></span>
             </div>
           </div>
           <div class="actions flex">
-            <button id="copy" class="copy-button" type="button" disabled>
-              <span aria-hidden="true">⧉</span>
+            <button data-slot="button" data-variant="outline" id="copy" class="copy-button" type="button" aria-label="Copy" title="Copy" disabled>
+              <span data-slot="icon" aria-hidden="true"><i data-lucide="copy"></i></span>
               <span id="copy-label">Copy</span></button
-            ><button id="screenshot" class="screenshot-button" type="button" disabled>
-              <span aria-hidden="true">▣</span>
+            ><button data-slot="button" data-variant="outline" id="screenshot" class="screenshot-button" type="button" aria-label="Copy screenshot" title="Copy screenshot" disabled>
+              <span data-slot="icon" aria-hidden="true"><i data-lucide="image"></i></span>
               <span id="screenshot-label">Copy screenshot</span></button
-            ><button id="refresh" class="refresh-button" type="button">
-              <span aria-hidden="true">↻</span>
+            ><button data-slot="button" data-variant="default" id="refresh" class="refresh-button" type="button" aria-label="Another fortune" title="Another fortune">
+              <span data-slot="icon" aria-hidden="true"><i data-lucide="refresh-cw"></i></span>
               <span id="refresh-label">Another fortune</span>
             </button>
           </div>
         </div>
-        <p id="error" class="error" role="alert" hidden></p>
+        <p data-slot="alert" id="error" class="error" role="alert" hidden></p>
         <p class="hint">
           <span id="hint-first">Good things come to those who</span>
-          <kbd>moo</kbd>.<span
+          <kbd data-slot="kbd">moo</kbd>.<span
             class="keyboard-hint"
           >
-            <span id="hint-second">Press</span> <kbd>Space</kbd>
+            <span id="hint-second">Press</span> <kbd data-slot="kbd">Space</kbd>
             <span id="hint-third">for another.</span></span
           >
         </p>
