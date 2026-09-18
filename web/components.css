@@ -1,0 +1,123 @@
+:root {
+  --ui-border: #45475a80;
+  --ui-input: #45475a80;
+  --ui-ring: var(--gold);
+  --ui-radius: 8px;
+}
+
+[data-slot="button"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius);
+  padding: 0 18px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    color 0.15s,
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s;
+}
+
+[data-slot="button"][data-variant="default"] {
+  border-color: var(--gold);
+  background: var(--gold);
+  color: var(--crust);
+}
+
+[data-slot="button"][data-variant="outline"] {
+  border-color: var(--ui-border);
+  background: transparent;
+  color: var(--subtext);
+}
+
+[data-slot="button"][data-variant="outline"]:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+[data-slot="button"]:focus-visible,
+[data-slot="select"]:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 3px;
+}
+
+[data-slot="button"]:disabled,
+[data-slot="select"]:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+[data-slot="icon"] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-slot="icon"] svg,
+svg[data-lucide] {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+[data-slot="label"] {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--subtext);
+  font: 10px "JetBrains Mono", monospace;
+}
+
+[data-slot="select"] {
+  width: 170px;
+  height: 44px;
+  appearance: none;
+  border: 1px solid var(--ui-input);
+  border-radius: var(--ui-radius);
+  background: var(--mantle);
+  color: var(--text);
+  padding: 0 38px 0 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+[data-slot="select-icon"] {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  display: inline-flex;
+  color: var(--subtext);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+[data-slot="select-icon"] svg {
+  width: 14px;
+  height: 14px;
+}
+
+[data-slot="alert"] {
+  border: 1px solid #f38ba830;
+  border-radius: var(--ui-radius);
+  background: #f38ba80c;
+  color: #f38ba8;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+[data-slot="kbd"] {
+  border: 1px solid #45475a60;
+  border-radius: 4px;
+  color: var(--gold);
+  padding: 2px 5px;
+  font: 10px "JetBrains Mono", monospace;
+}

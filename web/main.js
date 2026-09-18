@@ -1,5 +1,17 @@
 import "./style.css";
+import {
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  Image as ImageIcon,
+  RefreshCw,
+  createIcons,
+} from "lucide";
 import { cowsay, DEFAULT_COW } from "./cowsay.js";
+
+createIcons({
+  icons: { ChevronDown, Copy, ExternalLink, Image: ImageIcon, RefreshCw },
+});
 
 const api = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const $ = (id) => document.getElementById(id);
@@ -255,6 +267,12 @@ function applyLocale() {
   setText("copy-label", text.copy);
   setText("screenshot-label", text.copyScreenshot);
   setText("refresh-label", text.refresh);
+  copy.setAttribute("aria-label", text.copy);
+  screenshot.setAttribute("aria-label", text.copyScreenshot);
+  refresh.setAttribute("aria-label", text.refresh);
+  copy.title = text.copy;
+  screenshot.title = text.copyScreenshot;
+  refresh.title = text.refresh;
   setText("hint-first", text.hintFirst);
   setText("hint-second", text.hintSecond);
   setText("hint-third", text.hintThird);

@@ -127,6 +127,22 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  expect(
+    await page.locator(".select-wrap").evaluateAll((wrappers) =>
+      wrappers.every((wrapper) => {
+        const indicator = wrapper.querySelector('[data-slot="select-icon"]');
+        const select = wrapper.querySelector("select");
+        const indicatorBounds = indicator.getBoundingClientRect();
+        const selectBounds = select.getBoundingClientRect();
+        return (
+          indicatorBounds.left >= selectBounds.left &&
+          indicatorBounds.right <= selectBounds.right &&
+          indicatorBounds.top >= selectBounds.top &&
+          indicatorBounds.bottom <= selectBounds.bottom
+        );
+      }),
+    ),
+  ).toBe(true);
   if (isMobile) {
     const localeBox = await page.locator(".locale-field").boundingBox();
     const categoryBox = await page.locator(".category-field").boundingBox();
@@ -174,8 +190,41 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       { height: "52px", padding: "8px 10px" },
       { height: "52px", padding: "8px 10px" },
     ]);
+    const mobileActionLabels = await page.locator(".actions").evaluate((actions) => {
+      const labelGeometry = (selector) => {
+        const bounds = actions.querySelector(selector).getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height };
+      };
+      return {
+        controlsWidth: actions.closest(".controls").clientWidth,
+        copy: labelGeometry("#copy-label"),
+        screenshot: labelGeometry("#screenshot-label"),
+        refresh: labelGeometry("#refresh-label"),
+      };
+    });
+    expect(mobileActionLabels.copy.width).toBeGreaterThan(1);
+    expect(mobileActionLabels.screenshot.width).toBeGreaterThan(1);
+    if (mobileActionLabels.controlsWidth <= 420) {
+      expect(mobileActionLabels.refresh).toEqual({ width: 1, height: 1 });
+    } else {
+      expect(mobileActionLabels.refresh.width).toBeGreaterThan(1);
+    }
   }
   if (isDesktop) {
+    const terminalBox = await page.locator("#terminal").boundingBox();
+    const controlsBox = await page.locator(".controls").boundingBox();
+    const cowLabelBox = await page.locator("#cow-label").boundingBox();
+    const cowSelectBox = await page.locator("#cow-style").boundingBox();
+    expect(controlsBox.x).toBeGreaterThanOrEqual(terminalBox.x);
+    expect(controlsBox.x + controlsBox.width).toBeLessThanOrEqual(
+      terminalBox.x + terminalBox.width,
+    );
+    expect(
+      Math.abs(
+        cowLabelBox.y + cowLabelBox.height / 2 -
+          (cowSelectBox.y + cowSelectBox.height / 2),
+      ),
+    ).toBeLessThanOrEqual(1);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollHeight <= innerHeight,
@@ -260,6 +309,121 @@ test("long fortunes cannot widen the mobile layout", async ({ page }) => {
   expect(terminal.x + terminal.width).toBeLessThanOrEqual(
     page.viewportSize().width,
   );
+});
+
+test("terminal URL title gives way to controls on narrow mobile screens", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("locales"))
+      return route.fulfill({ json: [{ id: "en", name: "English" }] });
+    if (path.endsWith("categories")) return route.fulfill({ json: [] });
+    if (path.endsWith("/cows"))
+      return route.fulfill({ json: ["default", "dragon"] });
+    return route.fulfill({ body: "Small screens still deserve wisdom." });
+  });
+  await page.goto("/");
+
+  const layout = await page.locator(".terminal-bar").evaluate((bar) => {
+    const title = bar.querySelector(".terminal-title");
+    const dots = bar.querySelector(".window-dots");
+    const cowField = bar.querySelector(".cow-field");
+    const titleBounds = title.getBoundingClientRect();
+    const dotsBounds = dots.getBoundingClientRect();
+    const cowBounds = cowField.getBoundingClientRect();
+    return {
+      titleIsClipped: title.clientWidth < title.scrollWidth,
+      titleStartsAfterDots: titleBounds.left >= dotsBounds.right,
+      titleEndsBeforeCowControl: titleBounds.right <= cowBounds.left,
+      cowControlIsIntact: cowField.clientWidth >= 104,
+      overflow: getComputedStyle(title).overflow,
+    };
+  });
+
+  expect(layout).toEqual({
+    titleIsClipped: true,
+    titleStartsAfterDots: true,
+    titleEndsBeforeCowControl: true,
+    cowControlIsIntact: true,
+    overflow: "hidden",
+  });
+});
+
+test("action labels progressively yield space to dropdowns", async ({ page }) => {
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("locales"))
+      return route.fulfill({ json: [{ id: "en", name: "English" }] });
+    if (path.endsWith("categories"))
+      return route.fulfill({ json: ["wisdom"] });
+    if (path.endsWith("/cows")) return route.fulfill({ json: ["default"] });
+    return route.fulfill({ body: "Responsive controls share their pasture." });
+  });
+  await page.goto("/");
+
+  const buttonWidths = async () => ({
+    copy: (await page.locator("#copy").boundingBox()).width,
+    screenshot: (await page.locator("#screenshot").boundingBox()).width,
+    refresh: (await page.locator("#refresh").boundingBox()).width,
+  });
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  const fullLabels = await buttonWidths();
+  expect(fullLabels.copy).toBeGreaterThan(44);
+  expect(fullLabels.screenshot).toBeGreaterThan(44);
+  expect(fullLabels.refresh).toBeGreaterThan(44);
+
+  await page.setViewportSize({ width: 820, height: 900 });
+  const screenshotHidden = await buttonWidths();
+  expect(screenshotHidden.copy).toBeGreaterThan(44);
+  expect(screenshotHidden.screenshot).toBe(44);
+  expect(screenshotHidden.refresh).toBeGreaterThan(44);
+
+  await page.setViewportSize({ width: 740, height: 900 });
+  const copyHidden = await buttonWidths();
+  expect(copyHidden.copy).toBe(44);
+  expect(copyHidden.screenshot).toBe(44);
+  expect(copyHidden.refresh).toBeGreaterThan(44);
+
+  await page.setViewportSize({ width: 700, height: 900 });
+  const allHidden = await buttonWidths();
+  expect(allHidden).toEqual({ copy: 44, screenshot: 44, refresh: 44 });
+  await expect(page.getByRole("button", { name: "Another fortune" })).toBeVisible();
+
+  for (const width of [482, 470]) {
+    await page.setViewportSize({ width, height: 900 });
+    const mobileActions = await page.locator(".actions").evaluate((actions) => {
+      const bounds = actions.getBoundingClientRect();
+      const copyLabel = actions.querySelector("#copy-label").getBoundingClientRect();
+      const screenshotLabel = actions
+        .querySelector("#screenshot-label")
+        .getBoundingClientRect();
+      const refreshLabel = actions
+        .querySelector("#refresh-label")
+        .getBoundingClientRect();
+      return {
+        labelsVisible: copyLabel.width > 1 && screenshotLabel.width > 1,
+        refreshLabelHidden: refreshLabel.width === 1,
+        childrenFit: [...actions.children].every((button) => {
+          const buttonBounds = button.getBoundingClientRect();
+          return buttonBounds.left >= bounds.left && buttonBounds.right <= bounds.right;
+        }),
+        screenshotTextFits:
+          screenshotLabel.left >=
+            actions.querySelector("#screenshot").getBoundingClientRect().left &&
+          screenshotLabel.right <=
+            actions.querySelector("#screenshot").getBoundingClientRect().right,
+      };
+    });
+    expect(mobileActions).toEqual({
+      labelsVisible: true,
+      refreshLabelHidden: true,
+      childrenFit: true,
+      screenshotTextFits: true,
+    });
+  }
 });
 
 test("loading gate covers only startup and language changes localize SEO", async ({
