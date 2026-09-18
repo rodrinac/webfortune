@@ -29,6 +29,9 @@ assert.equal(locales.find(({ id }) => id === "es")?.name, "Español");
 assert.equal(locales.find(({ id }) => id === "pt")?.name, "Português");
 const categories = await (await request("/categories")).json();
 assert.ok(Array.isArray(categories) && categories.length > 0);
+const cows = await (await request("/cows")).json();
+assert.ok(Array.isArray(cows) && cows.includes("default"));
+assert.match(await (await request("/cows/default")).text(), /\(oo\)/);
 assert.ok((await (await request("/")).text()).trim());
 assert.ok(
   (

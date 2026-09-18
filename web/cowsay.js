@@ -1,4 +1,10 @@
 // Browser-native cowsay: text stays text, and the speech bubble fits the viewport.
+export const DEFAULT_COW = String.raw`        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||`;
+
 export function wrapFortune(text, width = 44) {
   if (!Number.isInteger(width) || width < 1)
     throw new Error("Width must be a positive integer");
@@ -28,7 +34,7 @@ export function wrapFortune(text, width = 44) {
   });
 }
 
-export function cowsay(text, width = 44) {
+export function cowsay(text, width = 44, artwork = DEFAULT_COW) {
   const lines = wrapFortune(text, width);
   const size = Math.max(...lines.map((line) => Array.from(line).length));
   const bubble = lines.map((line, index) => {
@@ -46,10 +52,6 @@ export function cowsay(text, width = 44) {
     ` ${"_".repeat(size + 2)}`,
     ...bubble,
     ` ${"-".repeat(size + 2)}`,
-    String.raw`        \   ^__^
-         \  (oo)\_______
-            (__)\       )\/\
-                ||----w |
-                ||     ||`,
+    artwork,
   ].join("\n");
 }

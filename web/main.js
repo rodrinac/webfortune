@@ -1,5 +1,5 @@
 import "./style.css";
-import { cowsay } from "./cowsay.js";
+import { cowsay, DEFAULT_COW } from "./cowsay.js";
 
 const api = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const $ = (id) => document.getElementById(id);
@@ -7,11 +7,13 @@ const cow = $("cow");
 const stage = $("fortune-stage");
 const locale = $("locale");
 const category = $("category");
+const cowStyle = $("cow-style");
 const refresh = $("refresh");
 const copy = $("copy");
 const screenshot = $("screenshot");
 let fortune = "";
 let displayed = "Give me a moment. I'm chewing on a thought.";
+let cowArtwork = DEFAULT_COW;
 let busy = false;
 let copyTimer;
 let screenshotTimer;
@@ -40,6 +42,7 @@ const translations = {
     statusAway: "The pasture is out of reach",
     language: "Language",
     category: "A little about",
+    cow: "Cow",
     everything: "Everything",
     copy: "Copy",
     copied: "Copied!",
@@ -83,6 +86,7 @@ const translations = {
     statusAway: "Die Weide ist nicht erreichbar",
     language: "Sprache",
     category: "Ein wenig über",
+    cow: "Kuh",
     everything: "Alles",
     copy: "Kopieren",
     copied: "Kopiert!",
@@ -125,6 +129,7 @@ const translations = {
     statusAway: "La pradera no responde",
     language: "Idioma",
     category: "Un poco sobre",
+    cow: "Vaca",
     everything: "Todo",
     copy: "Copiar",
     copied: "¡Copiado!",
@@ -167,6 +172,7 @@ const translations = {
     statusAway: "O pasto está fora do alcance",
     language: "Idioma",
     category: "Um pouco sobre",
+    cow: "Vaca",
     everything: "Tudo",
     copy: "Copiar",
     copied: "Copiado!",
@@ -245,6 +251,7 @@ function applyLocale() {
   setText("terminal-label", text.pasture);
   setText("locale-label", text.language);
   setText("category-label", text.category);
+  setText("cow-label", text.cow);
   setText("copy-label", text.copy);
   setText("screenshot-label", text.copyScreenshot);
   setText("refresh-label", text.refresh);
@@ -256,12 +263,22 @@ function applyLocale() {
 }
 
 function renderCow() {
-  const charWidth = parseFloat(getComputedStyle(cow).fontSize) * 0.61;
+  cow.style.fontSize = "";
+  const baseFontSize = parseFloat(getComputedStyle(cow).fontSize);
+  const artworkWidth = Math.max(
+    ...cowArtwork.split("\n").map((line) => Array.from(line).length),
+  );
+  const fontSize = Math.max(
+    7,
+    Math.min(baseFontSize, stage.clientWidth / (artworkWidth * 0.61)),
+  );
+  cow.style.fontSize = `${fontSize}px`;
+  const charWidth = fontSize * 0.61;
   const width = Math.max(
     20,
     Math.min(52, Math.floor(stage.clientWidth / charWidth) - 5),
   );
-  cow.textContent = cowsay(displayed, width);
+  cow.textContent = cowsay(displayed, width, cowArtwork);
 }
 new ResizeObserver(renderCow).observe(stage);
 renderCow();
@@ -284,6 +301,7 @@ async function loadFortune() {
   refresh.disabled = true;
   locale.disabled = true;
   category.disabled = true;
+  cowStyle.disabled = true;
   copy.disabled = true;
   screenshot.disabled = true;
   clearTimeout(copyTimer);
@@ -293,8 +311,7 @@ async function loadFortune() {
   stage.setAttribute("aria-busy", "true");
   $("error").hidden = true;
   $("status").textContent = strings().statusChewing;
-  $("command").textContent =
-    `fortune${category.value ? ` ${category.value}` : ""} | cowsay`;
+  $("command").textContent = commandText();
   const params = new URLSearchParams({ locale: currentLocale });
   if (category.value) params.set("category", category.value);
   try {
@@ -321,9 +338,53 @@ async function loadFortune() {
     refresh.disabled = false;
     locale.disabled = false;
     category.disabled = category.options.length < 2;
+    cowStyle.disabled = cowStyle.options.length < 2;
     copy.disabled = !fortune;
     screenshot.disabled = !fortune;
     stage.setAttribute("aria-busy", "false");
+  }
+}
+
+function commandText() {
+  return `fortune${category.value ? ` ${category.value}` : ""} | cowsay${cowStyle.value !== "default" ? ` -f ${cowStyle.value}` : ""}`;
+}
+
+async function loadCows() {
+  try {
+    const available = await (await request("/cows")).json();
+    if (
+      !Array.isArray(available) ||
+      !available.includes("default") ||
+      !available.every(
+        (value) => typeof value === "string" && /^[a-zA-Z0-9_.-]+$/.test(value),
+      )
+    )
+      throw new Error("Invalid cows");
+    const names = [...new Set(available)].sort((left, right) =>
+      left === "default" ? -1 : right === "default" ? 1 : left.localeCompare(right),
+    );
+    cowStyle.replaceChildren(...names.map((name) => new Option(name, name)));
+    cowStyle.disabled = names.length < 2;
+  } catch {
+    cowStyle.replaceChildren(new Option("default", "default"));
+  }
+}
+
+async function loadCowArtwork() {
+  const selected = cowStyle.value;
+  cowStyle.disabled = true;
+  try {
+    const artwork = (await (await request(`/cows/${encodeURIComponent(selected)}`)).text()).trimEnd();
+    if (!artwork || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(artwork))
+      throw new Error("Invalid cow");
+    cowArtwork = artwork;
+  } catch {
+    cowStyle.value = "default";
+    cowArtwork = DEFAULT_COW;
+  } finally {
+    cowStyle.disabled = cowStyle.options.length < 2;
+    $("command").textContent = commandText();
+    renderCow();
   }
 }
 
@@ -381,6 +442,7 @@ async function loadLocales() {
 
 refresh.addEventListener("click", loadFortune);
 category.addEventListener("change", loadFortune);
+cowStyle.addEventListener("change", loadCowArtwork);
 locale.addEventListener("change", async () => {
   currentLocale = locale.value;
   applyLocale();
@@ -405,7 +467,7 @@ screenshot.addEventListener("click", async () => {
   await document.fonts.ready;
   // A slightly narrower bubble leaves room to render the entire cow at a
   // comfortably readable size in the fixed square terminal print.
-  const lines = cowsay(fortune || displayed, 42).split("\n");
+  const lines = cowsay(fortune || displayed, 42, cowArtwork).split("\n");
   // Export at twice the display density so shared images stay crisp.
   const scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
   const canvas = document.createElement("canvas");
@@ -481,8 +543,9 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#a6e3a1";
   context.fillText("❯", promptX, promptY);
   context.fillStyle = "#a6adc8";
-  context.fillText("fortune | cowsay", promptX + 27 * chromeScale, promptY);
-  const commandWidth = context.measureText("fortune | cowsay").width;
+  const screenshotCommand = commandText();
+  context.fillText(screenshotCommand, promptX + 27 * chromeScale, promptY);
+  const commandWidth = context.measureText(screenshotCommand).width;
   context.fillStyle = "#f9e2af";
   context.fillText(
     "▍",
@@ -574,7 +637,7 @@ async function initialize() {
       waitForFonts(),
       (async () => {
         await loadLocales();
-        await loadCategories();
+        await Promise.all([loadCategories(), loadCows()]);
         await loadFortune();
       })(),
     ]);

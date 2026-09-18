@@ -21,6 +21,13 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       });
     if (url.pathname.endsWith("categories"))
       return route.fulfill({ json: ["wisdom", "computers"] });
+    if (url.pathname.endsWith("/cows"))
+      return route.fulfill({ json: ["default", "dragon"] });
+    if (url.pathname.endsWith("/cows/dragon"))
+      return route.fulfill({
+        contentType: "text/plain",
+        body: "  \\\n   \\ dragon",
+      });
     return route.fulfill({
       contentType: "text/plain",
       body: url.searchParams.has("category")
@@ -68,6 +75,9 @@ test("loads a fortune, selects categories, and stays within the viewport", async
   await page.selectOption("#category", "computers");
   await expect(page.locator("#fortune-text")).toContainText("A computer");
   expect(requests).toContain("?locale=en&category=computers");
+  await page.selectOption("#cow-style", "dragon");
+  await expect(page.locator("#cow")).toContainText("dragon");
+  await expect(page.locator("#command")).toContainText("cowsay -f dragon");
   await page.getByRole("button", { name: "Copy", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.__copiedText))
@@ -187,6 +197,8 @@ test("failure preserves the last fortune and retry recovers", async ({
       return route.fulfill({ json: [{ id: "en", name: "English" }] });
     if (new URL(route.request().url()).pathname.endsWith("categories"))
       return route.fulfill({ json: ["wisdom"] });
+    if (new URL(route.request().url()).pathname.endsWith("/cows"))
+      return route.fulfill({ json: ["default"] });
     return route.fulfill({
       status: failure ? 503 : 200,
       body: "Keep going, little cow.",
@@ -213,6 +225,8 @@ test("API text is never interpreted as HTML", async ({ page }) => {
       ? route.fulfill({ json: [{ id: "en", name: "English" }] })
       : new URL(route.request().url()).pathname.endsWith("categories")
         ? route.fulfill({ json: [] })
+        : new URL(route.request().url()).pathname.endsWith("/cows")
+          ? route.fulfill({ json: ["default"] })
         : route.fulfill({ body: "<img src=x onerror=alert(1)>" }),
   );
   await page.goto("/");
@@ -228,6 +242,8 @@ test("long fortunes cannot widen the mobile layout", async ({ page }) => {
     if (path.endsWith("locales"))
       return route.fulfill({ json: [{ id: "en", name: "English" }] });
     if (path.endsWith("categories")) return route.fulfill({ json: [] });
+    if (path.endsWith("/cows"))
+      return route.fulfill({ json: ["default"] });
     return route.fulfill({
       body: "Show me no patterns and I'll tell you no lines, boundaries, or impossibly wide pastures.",
     });
@@ -261,6 +277,8 @@ test("loading gate covers only startup and language changes localize SEO", async
       });
     if (url.pathname.endsWith("categories"))
       return route.fulfill({ json: [] });
+    if (url.pathname.endsWith("/cows"))
+      return route.fulfill({ json: ["default"] });
     await new Promise((resolve) => pendingFortunes.push(resolve));
     return route.fulfill({
       contentType: "text/plain; charset=utf-8",
