@@ -14,8 +14,47 @@ concurrency:
 permissions: {}
 
 jobs:
-  backend:
+  release-gate:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      deploy: ${{ steps.manual.outputs.deploy || steps.release.outputs.deploy }}
+    steps:
+      - name: Allow manual deployment
+        if: github.event_name == 'workflow_dispatch'
+        id: manual
+        run: echo "deploy=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        if: github.event_name == 'workflow_run'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Verify published release belongs to this commit
+        if: github.event_name == 'workflow_run'
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)"
+          test -n "$version"
+          tag="v${version}"
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha')"
+          if [[ "$tag_sha" == "$RELEASE_SHA" ]]; then
+            published_at="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.published_at')"
+            if [[ "$published_at" != 'null' ]]; then
+              echo "deploy=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "Release ${tag} is not published for ${RELEASE_SHA}; skipping deployment"
+          echo "deploy=false" >> "$GITHUB_OUTPUT"
+
+  backend:
+    needs: release-gate
+    if: needs.release-gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: production
     permissions:
