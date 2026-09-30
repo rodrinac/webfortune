@@ -65,6 +65,7 @@ const translations = {
     hintSecond: "Press",
     hintThird: "for another.",
     footer: "A small corner of the internet, just for you.",
+    support: "Buy me a coffee ☕",
     encoding: "UTF-8 · 100% grass-fed",
     timeout: "The cow is taking its time. Please try again.",
     busy: "The pasture is busy. Give it a moment and try again.",
@@ -109,6 +110,7 @@ const translations = {
     hintSecond: "Drücke",
     hintThird: "für eine neue.",
     footer: "Eine kleine Ecke des Internets, nur für dich.",
+    support: "Spendier mir einen Kaffee ☕",
     encoding: "UTF-8 · 100% grasgefüttert",
     timeout: "Die Kuh lässt sich Zeit. Bitte versuche es erneut.",
     busy: "Die Weide ist voll. Versuch es gleich noch einmal.",
@@ -152,6 +154,7 @@ const translations = {
     hintSecond: "Pulsa",
     hintThird: "para otra.",
     footer: "Un pequeño rincón de internet, solo para ti.",
+    support: "Invítame a un café ☕",
     encoding: "UTF-8 · 100% alimentada con pasto",
     timeout: "La vaca se está tomando su tiempo. Inténtalo de nuevo.",
     busy: "La pradera está ocupada. Inténtalo en un momento.",
@@ -195,6 +198,7 @@ const translations = {
     hintSecond: "Pressione",
     hintThird: "para outra.",
     footer: "Um pequeno canto da internet, só para você.",
+    support: "Pague-me um café ☕",
     encoding: "UTF-8 · 100% alimentada com capim",
     timeout: "A vaca está demorando. Tente novamente.",
     busy: "O pasto está ocupado. Tente novamente em instantes.",
@@ -277,6 +281,7 @@ function applyLocale() {
   setText("hint-second", text.hintSecond);
   setText("hint-third", text.hintThird);
   setText("footer-label", text.footer);
+  setText("support-link", text.support);
   setText("encoding", text.encoding);
 }
 
