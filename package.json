@@ -10,13 +10,15 @@
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
     "smoke": "node scripts/smoke-api.mjs",
-    "generate:assets": "node scripts/generate-worker-assets.mjs"
+    "generate:assets": "node scripts/generate-worker-assets.mjs",
+    "worker:dev": "cd worker && wrangler dev"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.3.3",
     "tailwindcss": "^4.3.3",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "wrangler": "^4.152.0"
   },
   "dependencies": {
     "lucide": "^0.544.0"
