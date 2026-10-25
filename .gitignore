@@ -13,3 +13,4 @@ backend.hcl
 !.envrc
 /.direnv
 /result
+/build
