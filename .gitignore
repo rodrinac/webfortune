@@ -10,3 +10,6 @@
 backend.hcl
 .env*
 !.env.example
+!.envrc
+/.direnv
+/result
