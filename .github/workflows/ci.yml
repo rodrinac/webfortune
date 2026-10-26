@@ -67,6 +67,42 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 
+  worker:
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]')) &&
+        (github.event_name != 'pull_request' || github.head_ref != 'chore/version-bump')
+      }}
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+      - name: Check Worker
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            npm ci --no-audit --no-fund
+            npm run generate:assets
+            cd worker
+            cargo fmt --check
+            cargo clippy --locked --all-targets -- -D warnings
+            cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+            cargo test --locked
+            npx wrangler deploy --dry-run --outdir ../build/worker-dry-run
+          '
+      - name: Smoke-test the Worker locally
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            npm run worker:dev -- --port 8787 --ip 127.0.0.1 > wrangler-dev.log 2>&1 &
+            trap "cat wrangler-dev.log; kill %1" EXIT
+            for attempt in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:8787/health; then break; fi
+              sleep 2
+            done
+            API_URL=http://127.0.0.1:8787 CORS_ORIGIN=https://webfortune.app npm run smoke
+          '
+
   infrastructure:
     runs-on: ubuntu-latest
     if: >-

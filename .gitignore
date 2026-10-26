@@ -10,3 +10,10 @@
 backend.hcl
 .env*
 !.env.example
+!.envrc
+/.direnv
+/result
+/build
+/worker/target
+/worker/build
+.wrangler/
