@@ -11,7 +11,8 @@
     "test:e2e": "playwright test",
     "smoke": "node scripts/smoke-api.mjs",
     "generate:assets": "node scripts/generate-worker-assets.mjs",
-    "worker:dev": "cd worker && wrangler dev"
+    "worker:dev": "cd worker && wrangler dev",
+    "worker:deploy": "cd worker && wrangler deploy"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

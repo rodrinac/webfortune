@@ -141,8 +141,50 @@ jobs:
           npm run smoke
           echo "url=$API_URL" >> "$GITHUB_OUTPUT"
 
+  worker:
+    needs: release-gate
+    if: needs.release-gate.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    outputs:
+      api_url: ${{ steps.api.outputs.url }}
+    env:
+      API_URL: https://api.webfortune.app
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: cachix/install-nix-action@v31
+      - name: Check and deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            npm ci --no-audit --no-fund
+            npm test
+            npm run generate:assets
+            (cd worker && cargo test --locked)
+            npm run worker:deploy
+          '
+      - name: Smoke-test deployed Worker
+        id: api
+        run: |
+          set -euo pipefail
+          # The first deploy also provisions the custom domain certificate.
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$API_URL/health"; then break; fi
+            sleep 10
+          done
+          curl -fsS "$API_URL/health"
+          nix develop --command bash -euo pipefail -c 'CORS_ORIGIN=https://webfortune.app npm run smoke'
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+
   build-pages:
-    needs: backend
+    needs: worker
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -157,7 +199,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
         env:
-          VITE_API_URL: ${{ needs.backend.outputs.api_url }}
+          VITE_API_URL: ${{ needs.worker.outputs.api_url }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist

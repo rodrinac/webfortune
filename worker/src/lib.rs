@@ -69,24 +69,45 @@ mod runtime {
         }
     }
 
+    // Fails open: a limiter hiccup should not take the whole API down with it.
+    async fn within_rate_limit(env: &Env, request: &Request) -> bool {
+        let Ok(limiter) = env.rate_limiter("RATE_LIMITER") else {
+            return true;
+        };
+        let client = request
+            .headers()
+            .get("cf-connecting-ip")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        limiter
+            .limit(client)
+            .await
+            .map_or(true, |outcome| outcome.success)
+    }
+
     #[event(fetch)]
     async fn fetch(request: Request, env: Env, _context: Context) -> Result<Response> {
         let url = request.url()?;
         let method = request.method().to_string();
         let assets = env.assets("ASSETS")?;
 
-        let mut reply = match manifest(&assets).await {
-            Some(manifest) => {
-                let action = api::handle(
-                    &method,
-                    url.path(),
-                    url.query(),
-                    &manifest,
-                    js_sys::Math::random(),
-                );
-                resolve(&assets, action).await
+        let mut reply = if method != "OPTIONS" && !within_rate_limit(&env, &request).await {
+            api::text(429, "Too many requests.\n")
+        } else {
+            match manifest(&assets).await {
+                Some(manifest) => {
+                    let action = api::handle(
+                        &method,
+                        url.path(),
+                        url.query(),
+                        &manifest,
+                        js_sys::Math::random(),
+                    );
+                    resolve(&assets, action).await
+                }
+                None => api::text(503, "Fortune service unavailable.\n"),
             }
-            None => api::text(503, "Fortune service unavailable.\n"),
         };
 
         let allowed_origins = env
