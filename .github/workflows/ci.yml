@@ -10,42 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    runs-on: ubuntu-latest
-    env:
-      SKIP_VALIDATION: >-
-        ${{
-          (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip version-bump]')) ||
-          (github.event_name == 'pull_request' && github.head_ref == 'chore/version-bump')
-        }}
-
-    steps:
-      - name: Accept version bump
-        if: env.SKIP_VALIDATION == 'true'
-        run: echo "Version-only change; validation completed by the source PR."
-
-      - name: Checkout repository
-        if: env.SKIP_VALIDATION != 'true'
-        uses: actions/checkout@v5
-
-      - name: Install stable Rust
-        if: env.SKIP_VALIDATION != 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Check formatting
-        if: env.SKIP_VALIDATION != 'true'
-        run: cargo fmt --check
-
-      - name: Lint
-        if: env.SKIP_VALIDATION != 'true'
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Test
-        if: env.SKIP_VALIDATION != 'true'
-        run: cargo test --all-targets
-
   web:
     runs-on: ubuntu-latest
     if: >-
@@ -63,7 +27,7 @@ jobs:
       - run: npm test
       - run: npm run build
         env:
-          VITE_API_URL: https://example.execute-api.eu-west-1.amazonaws.com
+          VITE_API_URL: https://api.webfortune.app
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 
@@ -102,45 +66,3 @@ jobs:
             done
             API_URL=http://127.0.0.1:8787 CORS_ORIGIN=https://webfortune.app npm run smoke
           '
-
-  infrastructure:
-    runs-on: ubuntu-latest
-    if: >-
-      ${{
-        (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]')) &&
-        (github.event_name != 'pull_request' || github.head_ref != 'chore/version-bump')
-      }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.11.4
-      - run: terraform fmt -check -recursive infra
-      - run: terraform -chdir=infra init -backend=false
-      - run: terraform -chdir=infra validate
-      - run: terraform -chdir=infra/bootstrap init -backend=false
-      - run: terraform -chdir=infra/bootstrap validate
-
-  container:
-    runs-on: ubuntu-latest
-    if: >-
-      ${{
-        (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]')) &&
-        (github.event_name != 'pull_request' || github.head_ref != 'chore/version-bump')
-      }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-      - run: docker build -t webfortune:test .
-      - name: Smoke-test the production container
-        run: |
-          set -euo pipefail
-          docker run -d --name webfortune-test -p 8080:8080 webfortune:test
-          trap 'docker logs webfortune-test; docker stop webfortune-test' EXIT
-          for attempt in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/health; then break; fi
-            sleep 1
-          done
-          npm run smoke

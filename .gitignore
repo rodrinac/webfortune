@@ -3,11 +3,6 @@
 /dist
 /test-results
 /playwright-report
-**/.terraform/
-*.tfstate*
-*.tfplan
-*.tfvars
-backend.hcl
 .env*
 !.env.example
 !.envrc

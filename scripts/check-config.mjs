@@ -1,7 +1,7 @@
 const value = process.env.VITE_API_URL;
 if (!value)
   throw new Error(
-    "VITE_API_URL is required for production builds. Set it to the Terraform api_url output.",
+    "VITE_API_URL is required for production builds. Set it to the public Worker URL (https://api.webfortune.app).",
   );
 const url = new URL(value);
 if (

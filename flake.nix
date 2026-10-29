@@ -29,8 +29,8 @@
           )
         );
 
-      # Same Debian bookworm packages the production Docker image installs, so
-      # generated data matches what the API serves today on every platform.
+      # Same Debian bookworm packages used to generate Worker assets, so local
+      # and production fortune/cow data stay aligned on every platform.
       debianPackages = [
         {
           path = "f/fortune-mod/fortunes_1.99.1-7.3_all.deb";

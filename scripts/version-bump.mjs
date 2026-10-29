@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Determines the next semantic version based on Conventional Commits since the last
- * `vX.Y.Z` release tag, and writes it to Cargo.toml, package.json, and package-lock.json.
+ * `vX.Y.Z` release tag, and writes it to package.json, package-lock.json, and
+ * worker/Cargo.toml (+ worker/Cargo.lock).
  *
  * Bump rules (highest wins):
  *   - "BREAKING CHANGE:" in the commit body, or "!" after type/scope (e.g. "feat!:") -> major
@@ -19,8 +20,8 @@ import process from "node:process";
 const REPO_ROOT = process.cwd();
 const PACKAGE_JSON_PATH = path.join(REPO_ROOT, "package.json");
 const PACKAGE_LOCK_PATH = path.join(REPO_ROOT, "package-lock.json");
-const CARGO_TOML_PATH = path.join(REPO_ROOT, "Cargo.toml");
-const CARGO_LOCK_PATH = path.join(REPO_ROOT, "Cargo.lock");
+const WORKER_CARGO_TOML_PATH = path.join(REPO_ROOT, "worker", "Cargo.toml");
+const WORKER_CARGO_LOCK_PATH = path.join(REPO_ROOT, "worker", "Cargo.lock");
 
 const CONVENTIONAL_COMMIT_PATTERN = /^(\w+)(\([^)]*\))?(!)?:\s*(.+)$/;
 const BREAKING_CHANGE_PATTERN = /^BREAKING CHANGE:\s*/m;
@@ -117,7 +118,7 @@ const updateCargoLock = (filePath, nextVersion) => {
   if (!existsSync(filePath)) return;
   const contents = readFileSync(filePath, "utf8");
   const updated = contents.replace(
-    /(\[\[package\]\]\r?\nname = "webfortune"\r?\nversion = ")[^"]+(")/,
+    /(\[\[package\]\]\r?\nname = "webfortune-worker"\r?\nversion = ")[^"]+(")/,
     `$1${nextVersion}$2`,
   );
   writeFileSync(filePath, updated);
@@ -150,8 +151,8 @@ const main = () => {
     }
   });
 
-  updateCargoToml(CARGO_TOML_PATH, nextVersion);
-  updateCargoLock(CARGO_LOCK_PATH, nextVersion);
+  updateCargoToml(WORKER_CARGO_TOML_PATH, nextVersion);
+  updateCargoLock(WORKER_CARGO_LOCK_PATH, nextVersion);
 
   console.error(`Bumping version: ${currentVersion} -> ${nextVersion} (${bump})`);
   process.stdout.write(nextVersion);
