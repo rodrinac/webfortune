@@ -38,19 +38,21 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
 ### Pipeline Flow
 
 1. **Push to `main`**: Triggers `.github/workflows/version-bump.yml`.
-2. **Version Bump PR**: If release-worthy commits are found, a pull request is automatically opened from branch `chore/version-bump` updating `Cargo.toml`, `package.json`, and `package-lock.json`.
+2. **Version Bump PR**: If release-worthy commits are found, a pull request is automatically opened from branch `chore/version-bump` updating `package.json`, `package-lock.json`, `worker/Cargo.toml`, and `worker/Cargo.lock`.
 3. **Release**: Merging the `chore/version-bump` PR triggers `.github/workflows/release.yml`, creating tag `vX.Y.Z` and a GitHub Release.
-4. **Deployment**: Successful release completion triggers `.github/workflows/deploy.yml` to deploy the application to AWS.
+4. **Deployment**: Successful release completion triggers `.github/workflows/deploy.yml` to deploy the Cloudflare Worker and GitHub Pages site.
 
 ## Project Structure & Commands
 
-- **Backend**: Rust (`src/main.rs`) using Tokio & Hyper.
-  - Test: `cargo test`
-  - Lint: `cargo clippy --all-targets -- -D warnings`
-  - Format: `cargo fmt --check`
+- **API**: Cloudflare Worker (`worker/`) built with Rust/wasm via `worker-build` and Wrangler.
+  - Test: `cd worker && cargo test --locked`
+  - Lint: `cd worker && cargo clippy --locked --all-targets -- -D warnings`
+  - Format: `cd worker && cargo fmt --check`
+  - Deploy: `npm run generate:assets && npm run worker:deploy`
 - **Frontend**: Vite (`web/`) with Vanilla JS & CSS.
   - Test: `npm test`
   - E2E Test: `npm run test:e2e`
-  - Build: `npm run build`
-- **Infrastructure**: Terraform (`infra/`) deploying to AWS ECR, Lambda, API Gateway, CloudFront, and S3.
-  - Validate: `terraform -chdir=infra validate`
+  - Build: `VITE_API_URL=https://api.webfortune.app npm run build`
+- **Local stack**: Nix flake provides Rust/wasm tooling and fortune/cow data.
+  - Enter: `nix develop` (or `direnv allow`)
+  - Worker + UI: `npm run worker:dev` then `npm run dev` (Vite proxies `/api` to `:8787`)
