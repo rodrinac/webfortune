@@ -22,6 +22,6 @@
     "wrangler": "^4.152.0"
   },
   "dependencies": {
-    "lucide": "^0.544.0"
+    "lucide": "^1.61.0"
   }
 }
