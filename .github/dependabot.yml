@@ -4,7 +4,7 @@ updates:
     directory: /worker
     schedule:
       interval: weekly
-    versioning-strategy: increase-if-necessary
+    versioning-strategy: auto
   - package-ecosystem: npm
     directory: /
     schedule:
