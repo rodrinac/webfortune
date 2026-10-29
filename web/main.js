@@ -8,6 +8,7 @@ import {
   createIcons,
 } from "lucide";
 import { cowsay, DEFAULT_COW } from "./cowsay.js";
+import { allowedParam, settingsQuery } from "./settings-url.js";
 
 createIcons({
   icons: { ChevronDown, Copy, ExternalLink, Image: ImageIcon, RefreshCw },
@@ -211,11 +212,46 @@ const translations = {
   },
 };
 
-let currentLocale = detectLocale();
+const initialSearch = window.location.search;
+let defaultLocale = detectLocale();
+let currentLocale = defaultLocale;
 
 function detectLocale() {
   const language = (navigator.language || "en").slice(0, 2).toLowerCase();
   return translations[language] ? language : "en";
+}
+
+function optionValues(select) {
+  return [...select.options].map((option) => option.value);
+}
+
+function fallbackLocale() {
+  const detected = detectLocale();
+  const values = optionValues(locale);
+  if (values.includes(detected)) return detected;
+  if (values.includes("en")) return "en";
+  return values[0] || detected;
+}
+
+function currentSettings() {
+  return {
+    locale: currentLocale,
+    cow: cowStyle.value,
+    category: category.value,
+    defaultLocale,
+  };
+}
+
+function syncSettingsUrl() {
+  const search = settingsQuery(currentSettings());
+  const next = `${location.pathname}${search}${location.hash}`;
+  if (next === `${location.pathname}${location.search}${location.hash}`) return;
+  history.replaceState(null, "", next);
+}
+
+function selectFromUrl(select, name) {
+  const requested = allowedParam(initialSearch, name, optionValues(select));
+  if (requested !== undefined) select.value = requested;
 }
 
 function strings() {
@@ -408,6 +444,7 @@ async function loadCowArtwork() {
     cowStyle.disabled = cowStyle.options.length < 2;
     $("command").textContent = commandText();
     renderCow();
+    syncSettingsUrl();
   }
 }
 
@@ -458,24 +495,32 @@ async function loadLocales() {
       ),
     );
   }
-  if (!translations[currentLocale]) currentLocale = "en";
+  defaultLocale = fallbackLocale();
+  const requested = allowedParam(initialSearch, "locale", optionValues(locale));
+  currentLocale = requested || defaultLocale;
   locale.value = currentLocale;
   applyLocale();
 }
 
 refresh.addEventListener("click", loadFortune);
-category.addEventListener("change", loadFortune);
+category.addEventListener("change", () => {
+  syncSettingsUrl();
+  loadFortune();
+});
 cowStyle.addEventListener("change", loadCowArtwork);
 locale.addEventListener("change", async () => {
   currentLocale = locale.value;
   applyLocale();
   await loadCategories();
+  syncSettingsUrl();
   await loadFortune();
   renderCow();
 });
 copy.addEventListener("click", async () => {
   try {
-    const websiteUrl = window.location.href.split(/[?#]/, 1)[0];
+    // The address bar already stores non-default settings, so the shared
+    // fortune link reopens the same language, cow, and category.
+    const websiteUrl = `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
     await navigator.clipboard.writeText(`${fortune}\n\n${websiteUrl}`);
     $("copy-label").textContent = strings().copied;
     copyTimer = setTimeout(() => {
@@ -661,6 +706,12 @@ async function initialize() {
       (async () => {
         await loadLocales();
         await Promise.all([loadCategories(), loadCows()]);
+        selectFromUrl(category, "category");
+        selectFromUrl(cowStyle, "cow");
+        if (cowStyle.value !== "default") await loadCowArtwork();
+        // Normalize before the fortune request so an invalid query does not
+        // linger in the address bar while the page is still loading.
+        syncSettingsUrl();
         await loadFortune();
       })(),
     ]);
