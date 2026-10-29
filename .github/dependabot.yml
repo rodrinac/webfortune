@@ -5,11 +5,23 @@ updates:
     schedule:
       interval: weekly
     versioning-strategy: auto
+    groups:
+      worker-cargo:
+        patterns:
+          - "*"
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    groups:
+      npm:
+        patterns:
+          - "*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

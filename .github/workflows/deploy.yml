@@ -26,7 +26,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         id: manual
         run: echo "deploy=true" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: github.event_name == 'workflow_run'
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -65,7 +65,7 @@ jobs:
       API_URL: https://api.webfortune.app
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: cachix/install-nix-action@v31
@@ -101,17 +101,17 @@ jobs:
       contents: read
       pages: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - run: npm ci --no-audit --no-fund
       - run: npm run build
         env:
           VITE_API_URL: ${{ needs.worker.outputs.api_url }}
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -127,4 +127,4 @@ jobs:
     steps:
       - name: Deploy GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
