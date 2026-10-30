@@ -69,10 +69,10 @@ mod runtime {
         }
     }
 
-    // Fail closed: missing client identity must not share an empty rate-limit key.
+    // Fail closed: missing identity or limiter errors must not bypass the quota.
     async fn within_rate_limit(env: &Env, request: &Request) -> bool {
         let Ok(limiter) = env.rate_limiter("RATE_LIMITER") else {
-            return true;
+            return false;
         };
         let Some(client) = request
             .headers()
@@ -86,7 +86,7 @@ mod runtime {
         limiter
             .limit(client)
             .await
-            .map_or(true, |outcome| outcome.success)
+            .map_or(false, |outcome| outcome.success)
     }
 
     #[event(fetch)]
