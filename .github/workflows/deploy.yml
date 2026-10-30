@@ -21,15 +21,20 @@ jobs:
       contents: read
     outputs:
       deploy: ${{ steps.manual.outputs.deploy || steps.release.outputs.deploy }}
+      # Verified deploy pin only — never read workflow_run.head_sha in privileged jobs.
+      sha: ${{ steps.manual.outputs.sha || steps.release.outputs.sha }}
     steps:
       - name: Allow manual deployment
         if: github.event_name == 'workflow_dispatch'
         id: manual
-        run: echo "deploy=true" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         if: github.event_name == 'workflow_run'
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
       - name: Verify published release belongs to this commit
         if: github.event_name == 'workflow_run'
         id: release
@@ -46,6 +51,7 @@ jobs:
             published_at="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.published_at')"
             if [[ "$published_at" != 'null' ]]; then
               echo "deploy=true" >> "$GITHUB_OUTPUT"
+              echo "sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -67,7 +73,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ needs.release-gate.outputs.sha }}
+          persist-credentials: false
       - uses: cachix/install-nix-action@v31
       - name: Check and deploy Worker
         env:
@@ -95,7 +102,7 @@ jobs:
           echo "url=$API_URL" >> "$GITHUB_OUTPUT"
 
   build-pages:
-    needs: worker
+    needs: [release-gate, worker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,12 +110,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Same release pin as the Worker job so Pages cannot ship a newer main tip.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # Same verified pin as the Worker job so Pages cannot ship a newer main tip.
+          ref: ${{ needs.release-gate.outputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
+          # No actions/cache: this job builds a release SHA in a privileged deploy
+          # workflow; a shared npm cache would be a cache-poisoning sink.
       - uses: actions/configure-pages@v6
       - run: npm ci --no-audit --no-fund
       - run: npm run build
