@@ -30,17 +30,20 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p 'require("./package.json").version')"
-          test -n "$version"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Refusing non-semver package.json version: ${version}" >&2
+            exit 1
+          fi
           echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
       - name: Check whether the release tag already exists
         id: existing-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
-          if gh release view "$tag" >/dev/null 2>&1 || gh api "repos/${{ github.repository }}/git/ref/tags/$tag" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1 || gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -50,19 +53,23 @@ jobs:
         if: steps.existing-tag.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh api "repos/${{ github.repository }}/git/refs" --method POST \
-            -f "ref=refs/tags/${{ steps.version.outputs.tag }}" \
-            -f "sha=${{ github.sha }}"
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" --method POST \
+            -f "ref=refs/tags/${TAG}" \
+            -f "sha=${SHA}"
 
       - name: Create GitHub release
         if: steps.existing-tag.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
+          gh release create "$TAG" \
+            --title "$TAG" \
             --generate-notes \
-            --target "${{ github.sha }}"
+            --target "$SHA"
