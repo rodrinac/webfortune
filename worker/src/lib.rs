@@ -69,17 +69,20 @@ mod runtime {
         }
     }
 
-    // Fails open: a limiter hiccup should not take the whole API down with it.
+    // Fail closed: missing client identity must not share an empty rate-limit key.
     async fn within_rate_limit(env: &Env, request: &Request) -> bool {
         let Ok(limiter) = env.rate_limiter("RATE_LIMITER") else {
             return true;
         };
-        let client = request
+        let Some(client) = request
             .headers()
             .get("cf-connecting-ip")
             .ok()
             .flatten()
-            .unwrap_or_default();
+            .filter(|ip| !ip.is_empty())
+        else {
+            return false;
+        };
         limiter
             .limit(client)
             .await
