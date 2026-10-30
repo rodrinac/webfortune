@@ -86,7 +86,7 @@ mod runtime {
         limiter
             .limit(client)
             .await
-            .map_or(false, |outcome| outcome.success)
+            .is_ok_and(|outcome| outcome.success)
     }
 
     #[event(fetch)]
