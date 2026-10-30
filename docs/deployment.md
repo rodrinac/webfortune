@@ -21,13 +21,13 @@ Verify `webfortune.app` in the owner's GitHub Pages account settings and keep it
 
 `api.webfortune.app` is attached as a Worker custom domain via `worker/wrangler.jsonc` (`custom_domain: true`). DNS for that hostname is managed in Cloudflare.
 
-The pipeline pins each deployment to its triggering commit. Pages builds with `VITE_API_URL=https://api.webfortune.app` from the successful Worker job.
+The Release-triggered Deploy workflow pins Worker and Pages to the verified release commit. Pages builds with `VITE_API_URL=https://api.webfortune.app` from the successful Worker job. Manual redeploys use the separate **Deploy production (manual)** workflow, which checks out the selected branch tip only (never a `workflow_run` SHA).
 
 ## Verification and recovery
 
 After a successful deployment, open `https://webfortune.app/`. Choose a category, request another fortune, and copy the cow. The pipeline smoke-checks `/health`, random/category fortunes, query validation, unknown routes, method rejection, and CORS headers.
 
-To retry a failed deployment, rerun the failed workflow. If the Worker was already updated but Pages failed, the previous UI stays published and remains compatible with the API. Revert a bad application commit with a new commit on main; the normal workflow rebuilds and deploys it.
+To retry a failed Release-triggered deployment, rerun the failed workflow. For an ad-hoc redeploy of the current branch tip, run **Deploy production (manual)**. If the Worker was already updated but Pages failed, the previous UI stays published and remains compatible with the API. Revert a bad application commit with a new commit on main; the normal workflow rebuilds and deploys it.
 
 For failures inspect the workflow logs and Cloudflare Workers observability for `webfortune`. Rate limiting can return 429 during bursts; normal smoke tests intentionally do not expect a deterministic burst cutoff.
 

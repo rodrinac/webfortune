@@ -18,11 +18,8 @@ jobs:
     name: CodeQL
     runs-on: ubuntu-latest
     env:
-      SKIP_VALIDATION: >-
-        ${{
-          (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip version-bump]')) ||
-          (github.event_name == 'pull_request' && github.head_ref == 'chore/version-bump')
-        }}
+      # Skip only the push that lands the bump commit; bump PRs still get CodeQL.
+      SKIP_VALIDATION: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[skip version-bump]') }}
 
     steps:
       - name: Accept version bump
