@@ -1,7 +1,10 @@
 name: Deploy production
 
+# workflow_run only: this workflow must not also accept workflow_dispatch.
+# A write-capable trigger plus checkout of a workflow_run-derived SHA is
+# flagged by CodeQL as default-branch cache poisoning. Manual deploys live in
+# deploy-manual.yml and only check out github.sha.
 on:
-  workflow_dispatch:
   workflow_run:
     workflows: ["Release"]
     types: [completed]
@@ -15,28 +18,19 @@ permissions: {}
 
 jobs:
   release-gate:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      deploy: ${{ steps.manual.outputs.deploy || steps.release.outputs.deploy }}
-      # Verified deploy pin only — never read workflow_run.head_sha in privileged jobs.
-      sha: ${{ steps.manual.outputs.sha || steps.release.outputs.sha }}
+      deploy: ${{ steps.release.outputs.deploy }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
-      - name: Allow manual deployment
-        if: github.event_name == 'workflow_dispatch'
-        id: manual
-        run: |
-          echo "deploy=true" >> "$GITHUB_OUTPUT"
-          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
-        if: github.event_name == 'workflow_run'
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
       - name: Verify published release belongs to this commit
-        if: github.event_name == 'workflow_run'
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,6 +97,7 @@ jobs:
 
   build-pages:
     needs: [release-gate, worker]
+    if: needs.release-gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -116,8 +111,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          # No actions/cache: this job builds a release SHA in a privileged deploy
-          # workflow; a shared npm cache would be a cache-poisoning sink.
+          cache: npm
       - uses: actions/configure-pages@v6
       - run: npm ci --no-audit --no-fund
       - run: npm run build
