@@ -41,7 +41,15 @@ function assertFortuneId(id, label) {
   return database;
 }
 
+// worker/wrangler.jsonc allows 50 requests per 10 seconds per IP. CI curls
+// /health once before this script, and the deploy workflows curl it twice,
+// all inside that window. Stay under the remainder so those probes cannot
+// turn a later check into a 429.
+const SMOKE_REQUEST_BUDGET = 46;
+let requests = 0;
+
 async function request(path, status = 200, method = "GET") {
+  requests += 1;
   const response = await fetch(`${base}${path}`, {
     method,
     headers: origin ? { Origin: origin } : {},
@@ -109,7 +117,9 @@ for (const locale of ["de", "es"]) {
   let localizedFortunes = "";
   // The installed package decides which categories are enabled, so exercise
   // the locale itself several times instead of relying on an optional file.
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  // Eight draws still sees a non-ASCII fortune in de and es (most of those
+  // fortunes contain one) without spending the rate-limit budget.
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     const response = await request(`/?locale=${locale}`);
     assert.match(response.headers.get("content-type") || "", /charset=utf-8/i);
     const localizedFortune = await response.text();
@@ -119,24 +129,27 @@ for (const locale of ["de", "es"]) {
   }
   assert.match(localizedFortunes, /[^\x00-\x7F]/, `${locale} accents are missing`);
 }
-const portugueseFortune = await (await request("/?locale=pt")).text();
-assert.ok(portugueseFortune.trim(), "pt fortune is empty");
-assert.doesNotMatch(portugueseFortune, /\uFFFD/, "pt is not valid UTF-8");
-await png("/og.png");
-await png(`/og.png?fortune=${encodeURIComponent(randomId)}`);
 const portuguese = await request("/?locale=pt");
 const portugueseId = portuguese.headers.get("x-fortune-id");
 assertFortuneId(portugueseId, "portuguese");
-await portuguese.text();
+const portugueseFortune = await portuguese.text();
+assert.ok(portugueseFortune.trim(), "pt fortune is empty");
+assert.doesNotMatch(portugueseFortune, /\uFFFD/, "pt is not valid UTF-8");
+await request("/?category=not_a_real_category_8675309", 404);
+await request("/?category=../etc/passwd", 400);
+await request("/?category=a&category=b", 400);
+await request("/missing", 404);
+await request("/", 405, "POST");
+await png("/og.png");
+await png(`/og.png?fortune=${encodeURIComponent(randomId)}`);
 await png(
   `/og.png?locale=pt&fortune=${encodeURIComponent(portugueseId)}`,
 );
 await request("/og.png?fortune=not-a-fortune", 400);
 await request("/og.png?cow=../etc", 400);
 await request("/og.png?cow=not-a-real-cow", 404);
-await request("/?category=not_a_real_category_8675309", 404);
-await request("/?category=../etc/passwd", 400);
-await request("/?category=a&category=b", 400);
-await request("/missing", 404);
-await request("/", 405, "POST");
+assert.ok(
+  requests <= SMOKE_REQUEST_BUDGET,
+  `smoke sent ${requests} requests; budget is ${SMOKE_REQUEST_BUDGET} so health probes fit in the 50/10s limit`,
+);
 console.log(`API smoke checks passed: ${base}`);
