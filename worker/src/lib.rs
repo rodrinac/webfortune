@@ -1,4 +1,6 @@
 pub mod api;
+mod card;
+mod preview;
 
 #[cfg(target_arch = "wasm32")]
 mod runtime {
@@ -6,9 +8,10 @@ mod runtime {
     use std::collections::HashMap;
     use std::rc::Rc;
 
-    use worker::{event, js_sys, Context, Env, Fetcher, Request, Response, Result};
+    use worker::{event, js_sys, Context, Env, Fetch, Fetcher, Method, Request, Response, Result};
 
-    use crate::api::{self, Action, Manifest, Reply};
+    use crate::api::{self, Action, Manifest, OgImage, Reply};
+    use crate::{card, preview};
 
     // Assets are immutable per deployment, so each isolate parses them once.
     thread_local! {
@@ -66,6 +69,9 @@ mod runtime {
                 Some(fortune) => api::with_fortune_id(api::text(200, fortune), &name, index),
                 None => api::text(503, "Failed to load fortune.\n"),
             },
+            // Preview images are rendered before resolve; this keeps the match
+            // exhaustive if a caller forwards the action.
+            Action::OgImage(_) => api::text(500, "Failed to render preview.\n"),
         }
     }
 
@@ -92,10 +98,17 @@ mod runtime {
     #[event(fetch)]
     async fn fetch(request: Request, env: Env, _context: Context) -> Result<Response> {
         let url = request.url()?;
+        // The site route is not configured. This branch runs only after
+        // webfortune.app/* is pointed at the Worker; until then crawlers get
+        // the static preview from GitHub Pages.
+        if preview::is_pages_host(url.host_str().unwrap_or("")) {
+            return proxy_site(request, url, &env).await;
+        }
+
         let method = request.method().to_string();
         let assets = env.assets("ASSETS")?;
 
-        let mut reply = if method != "OPTIONS" && !within_rate_limit(&env, &request).await {
+        let reply = if method != "OPTIONS" && !within_rate_limit(&env, &request).await {
             api::text(429, "Too many requests.\n")
         } else {
             match manifest(&assets).await {
@@ -107,18 +120,64 @@ mod runtime {
                         &manifest,
                         js_sys::Math::random(),
                     );
-                    resolve(&assets, action).await
+                    match action {
+                        Action::OgImage(image) => match render_og(&assets, &image).await {
+                            Ok(png) => return png_response(png, &request, &env, &method),
+                            Err(reply) => reply,
+                        },
+                        other => resolve(&assets, other).await,
+                    }
                 }
                 None => api::text(503, "Fortune service unavailable.\n"),
             }
         };
 
+        text_response(reply, &request, &env, &method)
+    }
+
+    async fn render_og(assets: &Fetcher, image: &OgImage) -> std::result::Result<Vec<u8>, Reply> {
+        let Some(cow) = asset(assets, &format!("cows/{}.txt", image.cow)).await else {
+            return Err(api::text(503, "Failed to load cows.\n"));
+        };
+        let message = if let Some(fortune) = &image.fortune {
+            match database(assets, &image.locale, &fortune.database)
+                .await
+                .and_then(|fortunes| fortunes.get(fortune.index).cloned())
+            {
+                Some(text) => text,
+                None => return Err(api::text(503, "Failed to load fortune.\n")),
+            }
+        } else {
+            card::BRAND_MESSAGE.to_string()
+        };
+        Ok(card::render_fortune_card(&message, &cow, &image.cow))
+    }
+
+    fn png_response(png: Vec<u8>, request: &Request, env: &Env, method: &str) -> Result<Response> {
+        let mut response = Response::from_bytes(png)?.with_status(200);
+        response.headers_mut().set("content-type", "image/png")?;
+        response
+            .headers_mut()
+            .set("cache-control", "public, max-age=86400")?;
+        response
+            .headers_mut()
+            .set("x-content-type-options", "nosniff")?;
+        apply_cors_headers(&mut response, request, env, method)?;
+        Ok(response)
+    }
+
+    fn text_response(
+        mut reply: Reply,
+        request: &Request,
+        env: &Env,
+        method: &str,
+    ) -> Result<Response> {
         let allowed_origins = env
             .var("CORS_ALLOWED_ORIGINS")
             .map(|origins| origins.to_string())
             .unwrap_or_default();
         let origin = request.headers().get("origin")?;
-        api::apply_cors(&mut reply, &method, origin.as_deref(), &allowed_origins);
+        api::apply_cors(&mut reply, method, origin.as_deref(), &allowed_origins);
 
         let mut response = if reply.body.is_empty() {
             Response::empty()?
@@ -129,6 +188,87 @@ mod runtime {
         for (name, value) in reply.headers {
             response.headers_mut().set(name, &value)?;
         }
+        Ok(response)
+    }
+
+    fn apply_cors_headers(
+        response: &mut Response,
+        request: &Request,
+        env: &Env,
+        method: &str,
+    ) -> Result<()> {
+        let allowed_origins = env
+            .var("CORS_ALLOWED_ORIGINS")
+            .map(|origins| origins.to_string())
+            .unwrap_or_default();
+        let origin = request.headers().get("origin")?;
+        let mut reply = api::text(200, "");
+        api::apply_cors(&mut reply, method, origin.as_deref(), &allowed_origins);
+        for (name, value) in reply.headers {
+            if name.starts_with("access-control") || name == "vary" {
+                response.headers_mut().set(name, &value)?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn proxy_site(request: Request, url: worker::Url, env: &Env) -> Result<Response> {
+        let query = url.query().map(str::to_owned);
+        let wants_preview = matches!(request.method(), Method::Get)
+            && query
+                .as_deref()
+                .is_some_and(preview::query_mentions_fortune);
+        if !wants_preview {
+            return Fetch::Request(request).send().await;
+        }
+
+        let mut origin = Fetch::Request(request).send().await?;
+        if origin.status_code() != 200 {
+            return Ok(origin);
+        }
+        let content_type = origin.headers().get("content-type")?.unwrap_or_default();
+        if !content_type.to_ascii_lowercase().contains("text/html") {
+            return Ok(origin);
+        }
+        let html = origin.text().await?;
+        let assets = env.assets("ASSETS")?;
+        let Some(manifest) = manifest(&assets).await else {
+            return html_response(html);
+        };
+        let Some(target) = api::share_target(&manifest, query.as_deref()) else {
+            return html_response(html);
+        };
+        let Some(fortune) = database(&assets, &target.locale, &target.database)
+            .await
+            .and_then(|fortunes| fortunes.get(target.index).cloned())
+        else {
+            return html_response(html);
+        };
+        let meta = preview::share_meta(
+            &fortune,
+            &target.page_query,
+            &target.locale,
+            &target.cow,
+            &target.fortune_id,
+        );
+        let mut response = Response::from_html(preview::rewrite_share_html(&html, &meta))?;
+        response
+            .headers_mut()
+            .set("cache-control", "private, no-store")?;
+        response
+            .headers_mut()
+            .set("x-content-type-options", "nosniff")?;
+        response
+            .headers_mut()
+            .set("x-webfortune-preview", "fortune")?;
+        Ok(response)
+    }
+
+    fn html_response(html: String) -> Result<Response> {
+        let mut response = Response::from_html(html)?;
+        response
+            .headers_mut()
+            .set("cache-control", "private, no-store")?;
         Ok(response)
     }
 }

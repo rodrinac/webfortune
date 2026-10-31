@@ -31,4 +31,19 @@ To retry a failed Release-triggered deployment, rerun the failed workflow. For a
 
 For failures inspect the workflow logs and Cloudflare Workers observability for `webfortune`. Rate limiting can return 429 during bursts; normal smoke tests intentionally do not expect a deterministic burst cutoff.
 
+## Per-fortune link previews
+
+Every page already advertises `https://webfortune.app/og.png`, a 1200×630 branded card. That static preview works with no Cloudflare change. Crawlers do not run the page's JavaScript, and GitHub Pages serves one `index.html` for every query string, so a permalink such as `/?locale=pt&cow=daemon&fortune=brasil-1730` cannot describe that fortune until something in front of Pages rewrites the HTML.
+
+The Worker can do that rewrite, and it can paint the fortune at `GET /og.png`. Neither requires a DNS or workflow change. The rewrite stays off because `worker/wrangler.jsonc` does not route `webfortune.app` at the Worker. `wrangler deploy` replaces routes from that file, so a route added only in the dashboard disappears on the next deploy.
+
+To enable per-fortune previews:
+
+1. Leave DNS and the GitHub Pages custom domain as they are. `webfortune.app` is already proxied by Cloudflare in front of Pages.
+2. Uncomment both site routes in `worker/wrangler.jsonc` (`webfortune.app/*` and `www.webfortune.app/*`). The `/*` is required: Cloudflare only matches a query string when the pattern ends in a wildcard, and permalinks are `/?fortune=...`.
+3. Deploy the Worker with the normal release deploy or the manual deploy workflow.
+4. Open a permalink in the [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/) or [opengraph.xyz](https://www.opengraph.xyz/). The title and description should contain the fortune text, and the image should be the cow saying it. The image URL is `https://api.webfortune.app/og.png` with `locale`, `fortune`, and, when it is not `default`, `cow`. Rewritten HTML responses include `x-webfortune-preview: fortune`. The homepage, and any URL whose fortune id does not resolve, keeps the static card.
+
+Enabling the routes sends every request for the site, including scripts and stylesheets, through the Worker and then to GitHub Pages. Ordinary responses are passed through. Only a GET of HTML whose query names a real fortune is rewritten. That path does not use the API rate limiter. `/og.png` on `api.webfortune.app` does, like the other API routes.
+
 References: [Cloudflare Workers](https://developers.cloudflare.com/workers/), [Wrangler](https://developers.cloudflare.com/workers/wrangler/), [GitHub Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
