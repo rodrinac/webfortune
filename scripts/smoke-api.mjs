@@ -4,6 +4,19 @@ const base = (process.env.API_URL || "http://127.0.0.1:8080").replace(
   "",
 );
 const origin = process.env.CORS_ORIGIN;
+
+function assertFortuneId(id, label) {
+  assert.equal(typeof id, "string", `${label} x-fortune-id`);
+  const split = id.lastIndexOf("-");
+  assert.ok(split > 0, `${label} id separator`);
+  const database = id.slice(0, split);
+  const index = id.slice(split + 1);
+  assert.match(database, /^[A-Za-z0-9_.-]+$/, `${label} database`);
+  assert.match(index, /^(?:0|[1-9][0-9]*)$/, `${label} index`);
+  assert.ok(Number(index) <= 4294967295, `${label} index range`);
+  return database;
+}
+
 async function request(path, status = 200, method = "GET") {
   const response = await fetch(`${base}${path}`, {
     method,
@@ -32,14 +45,42 @@ assert.ok(Array.isArray(categories) && categories.length > 0);
 const cows = await (await request("/cows")).json();
 assert.ok(Array.isArray(cows) && cows.includes("default"));
 assert.match(await (await request("/cows/default")).text(), /\(oo\)/);
-assert.ok((await (await request("/")).text()).trim());
-assert.ok(
-  (
-    await (
-      await request(`/?category=${encodeURIComponent(categories[0])}`)
-    ).text()
-  ).trim(),
+const randomResponse = await request("/");
+const randomId = randomResponse.headers.get("x-fortune-id");
+const randomDatabase = assertFortuneId(randomId, "random");
+const randomText = (await randomResponse.text()).trim();
+assert.ok(randomText, "random fortune is empty");
+if (origin) {
+  assert.match(
+    randomResponse.headers.get("access-control-expose-headers") || "",
+    /\bx-fortune-id\b/i,
+    "CORS exposes x-fortune-id",
+  );
+}
+const pinnedResponse = await request(
+  `/?fortune=${encodeURIComponent(randomId)}`,
 );
+assert.equal(pinnedResponse.headers.get("x-fortune-id"), randomId);
+assert.equal((await pinnedResponse.text()).trim(), randomText);
+
+const category = categories[0];
+const categorizedResponse = await request(
+  `/?category=${encodeURIComponent(category)}`,
+);
+const categoryId = categorizedResponse.headers.get("x-fortune-id");
+assertFortuneId(categoryId, "category");
+assert.equal(categoryId.slice(0, category.length + 1), `${category}-`);
+const categorizedText = (await categorizedResponse.text()).trim();
+assert.ok(categorizedText, "category fortune is empty");
+const categorizedPinned = await request(
+  `/?category=${encodeURIComponent(category)}&fortune=${encodeURIComponent(categoryId)}`,
+);
+assert.equal((await categorizedPinned.text()).trim(), categorizedText);
+
+await request("/?fortune=not-a-fortune", 400);
+await request("/?fortune=../etc-1", 400);
+await request("/?fortune=not_a_real_database_8675309-0", 404);
+await request(`/?fortune=${encodeURIComponent(randomDatabase)}-4000000000`, 404);
 for (const locale of ["de", "es"]) {
   let localizedFortunes = "";
   // The installed package decides which categories are enabled, so exercise

@@ -45,6 +45,7 @@ pub enum Action {
 struct FortuneQuery<'a> {
     locale: &'a str,
     category: &'a str,
+    fortune: Option<&'a str>,
 }
 
 const TEXT: &str = "text/plain; charset=utf-8";
@@ -80,19 +81,64 @@ fn valid_resource_name(name: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || b"-_.".contains(&character))
 }
 
+/// Stable, URL-safe id for one fortune. Database names may contain hyphens,
+/// so the index is the trailing decimal segment.
+pub fn fortune_id(database: &str, index: usize) -> String {
+    format!("{database}-{index}")
+}
+
+pub fn with_fortune_id(mut reply: Reply, database: &str, index: usize) -> Reply {
+    reply
+        .headers
+        .push(("x-fortune-id", fortune_id(database, index)));
+    reply
+}
+
+fn canonical_index(index: &str) -> bool {
+    let mut bytes = index.bytes();
+    match (bytes.next(), index.len()) {
+        (Some(b'0'), 1) => true,
+        (Some(b'1'..=b'9'), _) => bytes.all(|byte| byte.is_ascii_digit()),
+        _ => false,
+    }
+}
+
+fn parse_fortune_id(id: &str) -> Option<(&str, usize)> {
+    if !valid_resource_name(id) {
+        return None;
+    }
+    let (database, index) = id.rsplit_once('-')?;
+    if !valid_resource_name(database) || !canonical_index(index) {
+        return None;
+    }
+    // u32 keeps the id meaning the same on the host test target and wasm32.
+    let index: u32 = index.parse().ok()?;
+    Some((database, index as usize))
+}
+
 fn parse_query<'a>(
     manifest: &Manifest,
     query: Option<&'a str>,
+) -> Result<FortuneQuery<'a>, &'static str> {
+    parse_query_with(manifest, query, false)
+}
+
+fn parse_query_with<'a>(
+    manifest: &Manifest,
+    query: Option<&'a str>,
+    allow_fortune: bool,
 ) -> Result<FortuneQuery<'a>, &'static str> {
     let Some(query) = query else {
         return Ok(FortuneQuery {
             locale: "en",
             category: "",
+            fortune: None,
         });
     };
 
     let mut locale = None;
     let mut category = None;
+    let mut fortune = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
             return Err("Malformed query string.\n");
@@ -100,6 +146,7 @@ fn parse_query<'a>(
         match name {
             "locale" if locale.replace(value).is_none() => {}
             "category" if category.replace(value).is_none() => {}
+            "fortune" if allow_fortune && fortune.replace(value).is_none() => {}
             _ => return Err("Only one locale and category parameter are supported.\n"),
         }
     }
@@ -114,7 +161,17 @@ fn parse_query<'a>(
         return Err("Invalid category.\n");
     }
 
-    Ok(FortuneQuery { locale, category })
+    if let Some(id) = fortune {
+        if parse_fortune_id(id).is_none() {
+            return Err("Invalid fortune.\n");
+        }
+    }
+
+    Ok(FortuneQuery {
+        locale,
+        category,
+        fortune,
+    })
 }
 
 fn find_locale<'a>(manifest: &'a Manifest, id: &str) -> Option<&'a Locale> {
@@ -138,12 +195,32 @@ fn pick<'a>(
     None
 }
 
+fn pinned_fortune(locale: &Locale, category: &str, id: &str) -> Action {
+    let (database, index) = parse_fortune_id(id).expect("validated fortune id");
+    if !category.is_empty() && !locale.categories.iter().any(|name| name == category) {
+        return Action::Reply(text(404, "Fortune category not found.\n"));
+    }
+    match locale.databases.get(database) {
+        Some(&count) if index < count && (category.is_empty() || category == database) => {
+            Action::Fortune {
+                locale: locale.id.clone(),
+                database: database.to_string(),
+                index,
+            }
+        }
+        _ => Action::Reply(text(404, "Fortune not found.\n")),
+    }
+}
+
 fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
-    let query = match parse_query(manifest, query) {
+    let query = match parse_query_with(manifest, query, true) {
         Ok(query) => query,
         Err(error) => return Action::Reply(text(400, error)),
     };
     let locale = find_locale(manifest, query.locale).expect("validated locale");
+    if let Some(id) = query.fortune {
+        return pinned_fortune(locale, query.category, id);
+    }
     let picked = if query.category.is_empty() {
         pick(
             locale
@@ -246,6 +323,9 @@ pub fn apply_cors(reply: &mut Reply, method: &str, origin: Option<&str>, allowed
         .headers
         .push(("access-control-allow-origin", origin.to_string()));
     reply.headers.push(("vary", "Origin".to_string()));
+    reply
+        .headers
+        .push(("access-control-expose-headers", "x-fortune-id".to_string()));
     if method == "OPTIONS" {
         reply
             .headers
@@ -349,6 +429,176 @@ mod tests {
     }
 
     #[test]
+    fn omitting_the_fortune_id_keeps_the_previous_picker_and_errors() {
+        assert_eq!(
+            handle("GET", "/", Some("locale=en"), &manifest(), 0.4),
+            Action::Fortune {
+                locale: "en".to_string(),
+                database: "zippy".to_string(),
+                index: 0,
+            }
+        );
+        assert_eq!(
+            reply_of(get("/", Some("cow=tux"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/categories", Some("fortune=art-0"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/", Some("locale=fr&fortune=art-0"))).body,
+            "Unsupported locale.\n"
+        );
+        assert_eq!(
+            reply_of(get("/", Some("category=../etc&fortune=art-0"))).body,
+            "Invalid category.\n"
+        );
+    }
+
+    #[test]
+    fn fortune_ids_round_trip_to_the_same_fortune() {
+        assert_eq!(fortune_id("art", 0), "art-0");
+        assert_eq!(fortune_id("off-color", 1), "off-color-1");
+        assert_eq!(fortune_id("off.offensive", 12), "off.offensive-12");
+
+        let pinned = |query| handle("GET", "/", Some(query), &manifest(), 0.99);
+        assert_eq!(
+            pinned("fortune=zippy-2"),
+            Action::Fortune {
+                locale: "en".to_string(),
+                database: "zippy".to_string(),
+                index: 2,
+            }
+        );
+        assert_eq!(
+            pinned("locale=pt&fortune=brasil-3"),
+            Action::Fortune {
+                locale: "pt".to_string(),
+                database: "brasil".to_string(),
+                index: 3,
+            }
+        );
+        assert_eq!(
+            pinned("category=art&fortune=art-1"),
+            Action::Fortune {
+                locale: "en".to_string(),
+                database: "art".to_string(),
+                index: 1,
+            }
+        );
+
+        let reply = with_fortune_id(text(200, "Hello\n"), "zippy", 2);
+        assert_eq!(reply.status, 200);
+        assert_eq!(reply.body, "Hello\n");
+        assert!(reply
+            .headers
+            .contains(&("x-fortune-id", "zippy-2".to_string())));
+        assert!(reply
+            .headers
+            .iter()
+            .any(|(name, value)| *name == "content-type" && value.starts_with("text/plain")));
+    }
+
+    #[test]
+    fn hyphenated_database_names_stay_unambiguous() {
+        let manifest = serde_json::from_str(
+            r#"{
+              "locales": [{
+                "id": "en", "name": "English", "categories": ["off-color"],
+                "databases": { "off-color": 2, "off.offensive": 3 }
+              }],
+              "cows": ["default"]
+            }"#,
+        )
+        .unwrap();
+        let pinned = |query| handle("GET", "/", Some(query), &manifest, 0.0);
+        assert_eq!(
+            pinned("fortune=off-color-1"),
+            Action::Fortune {
+                locale: "en".to_string(),
+                database: "off-color".to_string(),
+                index: 1,
+            }
+        );
+        assert_eq!(
+            pinned("fortune=off.offensive-2"),
+            Action::Fortune {
+                locale: "en".to_string(),
+                database: "off.offensive".to_string(),
+                index: 2,
+            }
+        );
+        assert_eq!(
+            pinned("category=off-color&fortune=off-color-0"),
+            Action::Fortune {
+                locale: "en".to_string(),
+                database: "off-color".to_string(),
+                index: 0,
+            }
+        );
+        let mismatch = reply_of(pinned("category=off-color&fortune=off.offensive-0"));
+        assert_eq!(
+            (mismatch.status, mismatch.body.as_str()),
+            (404, "Fortune not found.\n")
+        );
+        let unknown = reply_of(pinned("fortune=off-0"));
+        assert_eq!(
+            (unknown.status, unknown.body.as_str()),
+            (404, "Fortune not found.\n")
+        );
+    }
+
+    #[test]
+    fn invalid_or_missing_fortune_ids_are_rejected() {
+        for query in [
+            "fortune=",
+            "fortune=art",
+            "fortune=art-",
+            "fortune=-0",
+            "fortune=art-01",
+            "fortune=art-00",
+            "fortune=../art-1",
+            "fortune=art-1/2",
+            "fortune=art-1a",
+            "fortune=not a fortune",
+            "fortune=art-4294967296",
+            "fortune=art-99999999999999999999",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Invalid fortune.\n"),
+                "{query}"
+            );
+        }
+        assert_eq!(
+            reply_of(get("/", Some("fortune=art-0&fortune=zippy-1"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+
+        for (query, body) in [
+            ("fortune=nope-0", "Fortune not found.\n"),
+            ("fortune=art-2", "Fortune not found.\n"),
+            ("fortune=art-99", "Fortune not found.\n"),
+            ("locale=pt&fortune=art-0", "Fortune not found.\n"),
+            ("locale=pt&fortune=brasil-4", "Fortune not found.\n"),
+            ("category=art&fortune=zippy-0", "Fortune not found.\n"),
+            (
+                "category=nope&fortune=art-0",
+                "Fortune category not found.\n",
+            ),
+            (
+                "locale=pt&category=brasil&fortune=brasil-0",
+                "Fortune category not found.\n",
+            ),
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!((reply.status, reply.body.as_str()), (404, body), "{query}");
+        }
+    }
+
+    #[test]
     fn unknown_resources_are_not_found() {
         for (path, query, body) in [
             ("/", Some("category=nope"), "Fortune category not found.\n"),
@@ -399,6 +649,9 @@ mod tests {
             "access-control-allow-origin",
             "https://rodrinac.github.io".to_string()
         )));
+        assert!(reply
+            .headers
+            .contains(&("access-control-expose-headers", "x-fortune-id".to_string())));
 
         let mut preflight = text(204, "");
         apply_cors(

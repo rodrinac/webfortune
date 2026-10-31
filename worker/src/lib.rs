@@ -63,7 +63,7 @@ mod runtime {
                 .await
                 .and_then(|fortunes| fortunes.get(index).cloned())
             {
-                Some(fortune) => api::text(200, fortune),
+                Some(fortune) => api::with_fortune_id(api::text(200, fortune), &name, index),
                 None => api::text(503, "Failed to load fortune.\n"),
             },
         }
