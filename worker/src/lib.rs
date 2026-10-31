@@ -8,7 +8,10 @@ mod runtime {
     use std::collections::HashMap;
     use std::rc::Rc;
 
-    use worker::{event, js_sys, Context, Env, Fetch, Fetcher, Method, Request, Response, Result};
+    use worker::{
+        event, js_sys, web_sys, Context, Env, Error, Fetch, Fetcher, Request, Response,
+        ResponseBody, Result,
+    };
 
     use crate::api::{self, Action, Manifest, OgImage, Reply};
     use crate::{card, preview};
@@ -98,9 +101,8 @@ mod runtime {
     #[event(fetch)]
     async fn fetch(request: Request, env: Env, _context: Context) -> Result<Response> {
         let url = request.url()?;
-        // The site route is not configured. This branch runs only after
-        // webfortune.app/* is pointed at the Worker; until then crawlers get
-        // the static preview from GitHub Pages.
+        // webfortune.app rewrites permalink HTML. Every other site request is
+        // fetched from the origin unchanged.
         if preview::is_pages_host(url.host_str().unwrap_or("")) {
             return proxy_site(request, url, &env).await;
         }
@@ -163,7 +165,9 @@ mod runtime {
             .headers_mut()
             .set("x-content-type-options", "nosniff")?;
         apply_cors_headers(&mut response, request, env, method)?;
-        Ok(response)
+        // Generated images ignore Range and stay a full 200. A byte slice of
+        // the PNG would be a different response than the one GET advertises.
+        maybe_head(response, method == "HEAD")
     }
 
     fn text_response(
@@ -188,7 +192,31 @@ mod runtime {
         for (name, value) in reply.headers {
             response.headers_mut().set(name, &value)?;
         }
-        Ok(response)
+        maybe_head(response, method == "HEAD")
+    }
+
+    /// HEAD keeps the GET status and headers, including content-length when the
+    /// body length is known, and sends no body.
+    fn maybe_head(response: Response, omit_body: bool) -> Result<Response> {
+        if !omit_body {
+            return Ok(response);
+        }
+        let status = response.status_code();
+        if !(200..=599).contains(&status) {
+            return Ok(response);
+        }
+        let known_len = match response.body() {
+            ResponseBody::Body(bytes) => Some(bytes.len()),
+            ResponseBody::Empty => Some(0),
+            ResponseBody::Stream(_) => None,
+        };
+        let (builder, _) = response.into_parts();
+        let builder = if let Some(len) = known_len {
+            builder.with_header("content-length", &len.to_string())?
+        } else {
+            builder
+        };
+        Ok(builder.empty())
     }
 
     fn apply_cors_headers(
@@ -214,35 +242,35 @@ mod runtime {
 
     async fn proxy_site(request: Request, url: worker::Url, env: &Env) -> Result<Response> {
         let query = url.query().map(str::to_owned);
-        let wants_preview = matches!(request.method(), Method::Get)
-            && query
-                .as_deref()
-                .is_some_and(preview::query_mentions_fortune);
-        if !wants_preview {
+        let Some(plan) = preview::permalink_plan(request.method().as_ref(), query.as_deref())
+        else {
             return Fetch::Request(request).send().await;
-        }
+        };
 
-        let mut origin = Fetch::Request(request).send().await?;
+        // Fetch the full document. The client may have sent HEAD or Range;
+        // Pages would answer those with no body or a 206 of the static tags.
+        let upstream = origin_document(&request, &plan)?;
+        let mut origin = Fetch::Request(upstream).send().await?;
         if origin.status_code() != 200 {
-            return Ok(origin);
+            return maybe_head(origin, plan.omit_body);
         }
         let content_type = origin.headers().get("content-type")?.unwrap_or_default();
         if !content_type.to_ascii_lowercase().contains("text/html") {
-            return Ok(origin);
+            return maybe_head(origin, plan.omit_body);
         }
         let html = origin.text().await?;
         let assets = env.assets("ASSETS")?;
         let Some(manifest) = manifest(&assets).await else {
-            return html_response(html);
+            return html_response(html, plan.omit_body);
         };
         let Some(target) = api::share_target(&manifest, query.as_deref()) else {
-            return html_response(html);
+            return html_response(html, plan.omit_body);
         };
         let Some(fortune) = database(&assets, &target.locale, &target.database)
             .await
             .and_then(|fortunes| fortunes.get(target.index).cloned())
         else {
-            return html_response(html);
+            return html_response(html, plan.omit_body);
         };
         let meta = preview::share_meta(
             &fortune,
@@ -261,14 +289,28 @@ mod runtime {
         response
             .headers_mut()
             .set("x-webfortune-preview", "fortune")?;
-        Ok(response)
+        // Range is ignored: the rewritten document is the full 200 representation.
+        maybe_head(response, plan.omit_body)
     }
 
-    fn html_response(html: String) -> Result<Response> {
+    /// A GET derived from the incoming request, with preview headers removed,
+    /// so the subrequest still goes to the origin.
+    fn origin_document(request: &Request, plan: &preview::PermalinkPlan) -> Result<Request> {
+        let init = web_sys::RequestInit::new();
+        init.set_method(plan.upstream_method);
+        let edge = web_sys::Request::new_with_request_and_init(request.inner(), &init)
+            .map_err(Error::from)?;
+        for name in plan.strip_headers {
+            edge.headers().delete(name).map_err(Error::from)?;
+        }
+        Ok(edge.into())
+    }
+
+    fn html_response(html: String, omit_body: bool) -> Result<Response> {
         let mut response = Response::from_html(html)?;
         response
             .headers_mut()
             .set("cache-control", "private, no-store")?;
-        Ok(response)
+        maybe_head(response, omit_body)
     }
 }

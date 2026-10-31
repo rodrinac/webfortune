@@ -29,6 +29,39 @@ pub fn query_mentions_fortune(query: &str) -> bool {
     })
 }
 
+/// Dropped on the origin fetch for a permalink. `Range` and `If-Range` make
+/// GitHub Pages answer 206 with a slice of the static page. `If-None-Match`
+/// and `If-Modified-Since` make it answer 304 for that same HTML. Either
+/// status skips the meta rewrite, so the fetch always asks for the full document.
+pub const ORIGIN_HEADERS_TO_STRIP: &[&str] =
+    &["range", "if-range", "if-none-match", "if-modified-since"];
+
+/// How to load a permalink. `None` means the request is not a preview and
+/// should be forwarded to the origin unchanged, including `Range`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PermalinkPlan {
+    /// Always GET, so a client HEAD still receives a document to rewrite.
+    pub upstream_method: &'static str,
+    /// Client HEAD: same headers as the rewritten GET, with no body.
+    pub omit_body: bool,
+    pub strip_headers: &'static [&'static str],
+}
+
+pub fn permalink_plan(method: &str, query: Option<&str>) -> Option<PermalinkPlan> {
+    let head = method == "HEAD";
+    if method != "GET" && !head {
+        return None;
+    }
+    if !query.is_some_and(query_mentions_fortune) {
+        return None;
+    }
+    Some(PermalinkPlan {
+        upstream_method: "GET",
+        omit_body: head,
+        strip_headers: ORIGIN_HEADERS_TO_STRIP,
+    })
+}
+
 pub fn page_url(query: &str) -> String {
     if query.is_empty() {
         format!("{SITE_ORIGIN}/")
@@ -220,6 +253,60 @@ mod tests {
             "tux",
             "brasil-3",
         )
+    }
+
+    fn forwarded<'a>(headers: &'a [(&str, &str)], strip: &[&str]) -> Vec<(&'a str, &'a str)> {
+        headers
+            .iter()
+            .copied()
+            .filter(|(name, _)| {
+                !strip
+                    .iter()
+                    .any(|dropped| name.eq_ignore_ascii_case(dropped))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn range_on_a_permalink_fetches_the_full_page() {
+        let query = Some("locale=pt&fortune=brasil-2126");
+        let plan = permalink_plan("GET", query).expect("permalink");
+        assert_eq!(plan.upstream_method, "GET");
+        assert!(!plan.omit_body);
+        assert_eq!(
+            plan.strip_headers,
+            ["range", "if-range", "if-none-match", "if-modified-since",].as_slice()
+        );
+
+        let headers = [
+            ("Range", "bytes=0-524287"),
+            ("If-Range", "\"67abc\""),
+            ("If-None-Match", "\"pages-etag\""),
+            ("If-Modified-Since", "Wed, 21 Oct 2015 07:28:00 GMT"),
+            ("User-Agent", "facebookexternalhit/1.1"),
+            ("Accept", "text/html"),
+        ];
+        let upstream = forwarded(&headers, plan.strip_headers);
+        assert_eq!(
+            upstream,
+            [
+                ("User-Agent", "facebookexternalhit/1.1"),
+                ("Accept", "text/html"),
+            ]
+        );
+
+        let head = permalink_plan("HEAD", query).expect("head permalink");
+        assert_eq!(head.upstream_method, "GET");
+        assert!(head.omit_body);
+        assert_eq!(head.strip_headers, plan.strip_headers);
+        let head_upstream = forwarded(&headers, head.strip_headers);
+        assert_eq!(head_upstream, upstream);
+
+        assert!(permalink_plan("GET", Some("locale=pt")).is_none());
+        assert!(permalink_plan("GET", None).is_none());
+        assert!(permalink_plan("HEAD", Some("v=1")).is_none());
+        assert!(permalink_plan("POST", query).is_none());
+        assert!(permalink_plan("PUT", query).is_none());
     }
 
     #[test]
