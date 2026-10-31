@@ -33,14 +33,19 @@ Open the Vite URL. The UI defaults to `/api`, which Vite forwards to the local W
 
 | Request | Response |
 | --- | --- |
-| `GET /` | Random fortune as UTF-8 plain text |
+| `GET /` | Random fortune as UTF-8 plain text. The response includes `x-fortune-id`, for example `computers-42`. |
+| `GET /?fortune=computers-42` | That exact fortune. Invalid ids are 400; an unknown database or out-of-range index is 404. |
 | `GET /?category=computers` | Fortune from an installed category |
 | `GET /categories` | JSON array of installed category names |
 | `GET /cows` | JSON array of installed cow names |
 | `GET /cows/{name}` | ASCII artwork for an installed cow |
 | `GET /health` | `{"status":"ok"}` when fortune data is available |
 
-Only GET is supported. The Worker handles browser OPTIONS and CORS. Invalid queries return 400, unknown routes/categories 404, and other methods 405. Rate limiting is per client IP.
+A fortune id is `<database>-<index>`. The index is a decimal with no leading zeros. Database names use the same resource-name rules as categories and may contain hyphens, so the id is split on the last hyphen. `locale` and `category` still work alongside `fortune`; when a category is set, the id's database must be that category.
+
+The page stores the served id in a `fortune` query parameter, next to `locale`, `cow`, and `category`. The copy button includes that URL, so opening it shows the same fortune. Refresh and Space request a new random fortune and replace the id. An invalid or unknown id falls back to a random fortune.
+
+Only GET is supported. The Worker handles browser OPTIONS and CORS, and exposes `x-fortune-id` to allowed origins. Invalid queries return 400, unknown routes/categories 404, and other methods 405. Rate limiting is per client IP.
 
 ## Deployment
 

@@ -8,7 +8,12 @@ import {
   createIcons,
 } from "lucide";
 import { cowsay, DEFAULT_COW } from "./cowsay.js";
-import { allowedParam, settingsQuery } from "./settings-url.js";
+import {
+  allowedParam,
+  fortuneParam,
+  isFortuneId,
+  settingsQuery,
+} from "./settings-url.js";
 
 createIcons({
   icons: { ChevronDown, Copy, ExternalLink, Image: ImageIcon, RefreshCw },
@@ -25,6 +30,7 @@ const refresh = $("refresh");
 const copy = $("copy");
 const screenshot = $("screenshot");
 let fortune = "";
+let fortuneId = "";
 let displayed = "Give me a moment. I'm chewing on a thought.";
 let cowArtwork = DEFAULT_COW;
 let busy = false;
@@ -238,6 +244,7 @@ function currentSettings() {
     locale: currentLocale,
     cow: cowStyle.value,
     category: category.value,
+    fortune: fortuneId,
     defaultLocale,
   };
 }
@@ -342,11 +349,15 @@ function renderCow() {
 new ResizeObserver(renderCow).observe(stage);
 renderCow();
 
-async function request(path) {
-  const response = await fetch(`${api}${path}`, {
+async function fetchApi(path) {
+  return fetch(`${api}${path}`, {
     signal: AbortSignal.timeout(15000),
     cache: "no-store",
   });
+}
+
+async function request(path) {
+  const response = await fetchApi(path);
   if (!response.ok) {
     if (response.status === 429) throw new Error(strings().busy);
     throw new Error(strings().unreachable);
@@ -354,7 +365,14 @@ async function request(path) {
   return response;
 }
 
-async function loadFortune() {
+function fortuneRequestPath(id) {
+  const params = new URLSearchParams({ locale: currentLocale });
+  if (category.value) params.set("category", category.value);
+  if (id) params.set("fortune", id);
+  return `/?${params}`;
+}
+
+async function loadFortune({ random = false } = {}) {
   if (busy) return;
   busy = true;
   refresh.disabled = true;
@@ -371,17 +389,39 @@ async function loadFortune() {
   $("error").hidden = true;
   $("status").textContent = strings().statusChewing;
   $("command").textContent = commandText();
-  const params = new URLSearchParams({ locale: currentLocale });
-  if (category.value) params.set("category", category.value);
+  const requestedId = random || !isFortuneId(fortuneId) ? "" : fortuneId;
+  let abandonedPinned = false;
   try {
-    const response = await request(`/?${params}`);
+    let response = await fetchApi(fortuneRequestPath(requestedId));
+    let servedFromPinned = Boolean(requestedId);
+    if (
+      requestedId &&
+      (response.status === 400 || response.status === 404)
+    ) {
+      abandonedPinned = true;
+      servedFromPinned = false;
+      fortuneId = "";
+      response = await fetchApi(fortuneRequestPath(""));
+    }
+    if (!response.ok) {
+      if (response.status === 429) throw new Error(strings().busy);
+      throw new Error(strings().unreachable);
+    }
     const text = (await response.text()).trim();
     if (!text) throw new Error(strings().quiet);
     fortune = displayed = text;
+    const servedId = response.headers.get("x-fortune-id");
+    if (isFortuneId(servedId)) fortuneId = servedId;
+    else if (!servedFromPinned) fortuneId = "";
+    syncSettingsUrl();
     $("fortune-text").textContent = fortune;
     $("status").textContent = strings().statusFresh;
     renderCow();
   } catch (error) {
+    if (abandonedPinned) {
+      fortuneId = "";
+      syncSettingsUrl();
+    }
     $("error").textContent =
       error.name === "TimeoutError" ? strings().timeout : error.message;
     $("error").hidden = false;
@@ -502,24 +542,26 @@ async function loadLocales() {
   applyLocale();
 }
 
-refresh.addEventListener("click", loadFortune);
+refresh.addEventListener("click", () => loadFortune({ random: true }));
 category.addEventListener("change", () => {
+  fortuneId = "";
   syncSettingsUrl();
-  loadFortune();
+  loadFortune({ random: true });
 });
 cowStyle.addEventListener("change", loadCowArtwork);
 locale.addEventListener("change", async () => {
   currentLocale = locale.value;
+  fortuneId = "";
   applyLocale();
   await loadCategories();
   syncSettingsUrl();
-  await loadFortune();
+  await loadFortune({ random: true });
   renderCow();
 });
 copy.addEventListener("click", async () => {
   try {
-    // The address bar already stores non-default settings, so the shared
-    // fortune link reopens the same language, cow, and category.
+    // The address bar stores the fortune id and any non-default settings, so
+    // the shared link reopens this exact fortune, language, cow, and category.
     const websiteUrl = `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
     await navigator.clipboard.writeText(`${fortune}\n\n${websiteUrl}`);
     $("copy-label").textContent = strings().copied;
@@ -696,7 +738,7 @@ document.addEventListener("keydown", (event) => {
     !event.repeat
   ) {
     event.preventDefault();
-    loadFortune();
+    loadFortune({ random: true });
   }
 });
 async function initialize() {
@@ -708,6 +750,7 @@ async function initialize() {
         await Promise.all([loadCategories(), loadCows()]);
         selectFromUrl(category, "category");
         selectFromUrl(cowStyle, "cow");
+        fortuneId = fortuneParam(initialSearch) || "";
         if (cowStyle.value !== "default") await loadCowArtwork();
         // Normalize before the fortune request so an invalid query does not
         // linger in the address bar while the page is still loading.

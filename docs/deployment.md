@@ -25,7 +25,7 @@ The Release-triggered Deploy workflow pins Worker and Pages to the verified rele
 
 ## Verification and recovery
 
-After a successful deployment, open `https://webfortune.app/`. Choose a category, request another fortune, and copy the cow. The pipeline smoke-checks `/health`, random/category fortunes, query validation, unknown routes, method rejection, and CORS headers.
+After a successful deployment, open `https://webfortune.app/`. Choose a category, request another fortune, and copy the cow. The pipeline smoke-checks `/health`, random/category fortunes, fortune permalinks (`x-fortune-id` and `?fortune=`), query validation, unknown routes, method rejection, and CORS headers.
 
 To retry a failed Release-triggered deployment, rerun the failed workflow. For an ad-hoc redeploy of the current branch tip, run **Deploy production (manual)**. If the Worker was already updated but Pages failed, the previous UI stays published and remains compatible with the API. Revert a bad application commit with a new commit on main; the normal workflow rebuilds and deploys it.
 

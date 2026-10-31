@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   allowedParam,
+  fortuneParam,
+  isFortuneId,
   isResourceName,
   settingsQuery,
 } from "../web/settings-url.js";
@@ -138,5 +140,100 @@ test("never places an unsafe value into the query string", () => {
       defaultLocale: "en",
     }),
     "?cow=tux&category=love",
+  );
+});
+
+test("reads one canonical fortune id and rejects the rest", () => {
+  assert.equal(isFortuneId("art-0"), true);
+  assert.equal(isFortuneId("off-color-12"), true);
+  assert.equal(isFortuneId("off.offensive-2"), true);
+  assert.equal(isFortuneId("a_b-3"), true);
+  assert.equal(isFortuneId("art-4294967295"), true);
+  for (const id of [
+    "",
+    "art",
+    "art-",
+    "-0",
+    "art-01",
+    "art-00",
+    "art-4294967296",
+    "art-999999999999",
+    "../art-1",
+    "art-1/2",
+    "love<script>-1",
+    "art-1\n",
+    null,
+    undefined,
+    12,
+  ])
+    assert.equal(isFortuneId(id), false, String(id));
+
+  assert.equal(fortuneParam("?fortune=off-color-12"), "off-color-12");
+  assert.equal(
+    fortuneParam("?locale=pt&cow=tux&category=love&fortune=love-4"),
+    "love-4",
+  );
+  assert.equal(fortuneParam(""), undefined);
+  assert.equal(fortuneParam("?fortune="), undefined);
+  assert.equal(fortuneParam("?fortune=love-01"), undefined);
+  assert.equal(fortuneParam("?fortune=love-4&fortune=love-5"), undefined);
+  assert.equal(fortuneParam("?fortune=../etc-1"), undefined);
+  assert.equal(
+    fortuneParam("?fortune=nope&locale=pt&cow=tux"),
+    undefined,
+  );
+  assert.equal(allowedParam("?fortune=nope&cow=tux", "cow", cows), "tux");
+});
+
+test("serializes the fortune id after the other settings", () => {
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      fortune: "love-4",
+      defaultLocale: "en",
+    }),
+    "?locale=pt&cow=tux&category=love&fortune=love-4",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "default",
+      category: "",
+      fortune: "general-0",
+      defaultLocale: "en",
+    }),
+    "?fortune=general-0",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      fortune: "love-01",
+      defaultLocale: "en",
+    }),
+    "?locale=pt&cow=tux&category=love",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "default",
+      category: "",
+      fortune: "../etc-1",
+      defaultLocale: "en",
+    }),
+    "",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "default",
+      category: "off-color",
+      fortune: "off-color-1",
+      defaultLocale: "pt",
+    }),
+    "?category=off-color&fortune=off-color-1",
   );
 });
