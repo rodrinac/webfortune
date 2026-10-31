@@ -39,6 +39,33 @@ pub enum Action {
         database: String,
         index: usize,
     },
+    /// Render a 1200×630 PNG. `fortune` is absent for the branded default card.
+    OgImage(OgImage),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OgImage {
+    pub locale: String,
+    pub cow: String,
+    pub fortune: Option<OgFortune>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OgFortune {
+    pub database: String,
+    pub index: usize,
+}
+
+/// A permalink a crawler can preview. Absent when the query does not name a
+/// fortune the page would actually show.
+#[derive(Debug, PartialEq)]
+pub struct ShareTarget {
+    pub locale: String,
+    pub cow: String,
+    pub database: String,
+    pub index: usize,
+    pub fortune_id: String,
+    pub page_query: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -298,6 +325,10 @@ pub fn handle(
             Err(error) => text(400, error),
         },
         "/" => return fortune(manifest, query, random),
+        "/og.png" => match og_image(manifest, query) {
+            Ok(image) => return Action::OgImage(image),
+            Err(reply) => reply,
+        },
         _ => match path.strip_prefix("/cows/") {
             Some(name) if !valid_resource_name(name) => text(400, "Invalid cow.\n"),
             Some(name) if manifest.cows.iter().any(|cow| cow == name) => {
@@ -308,6 +339,206 @@ pub fn handle(
         },
     };
     Action::Reply(reply)
+}
+
+struct OgQuery<'a> {
+    locale: &'a str,
+    category: &'a str,
+    fortune: Option<&'a str>,
+    cow: &'a str,
+}
+
+fn og_image(manifest: &Manifest, query: Option<&str>) -> Result<OgImage, Reply> {
+    let query = parse_og_query(manifest, query)?;
+    if !manifest.cows.iter().any(|cow| cow == query.cow) {
+        return Err(text(404, "Cow not found.\n"));
+    }
+    let fortune = if let Some(id) = query.fortune {
+        match pinned_fortune(
+            find_locale(manifest, query.locale).expect("validated locale"),
+            query.category,
+            id,
+        ) {
+            Action::Fortune {
+                database, index, ..
+            } => Some(OgFortune { database, index }),
+            Action::Reply(reply) => return Err(reply),
+            Action::Cow(_) | Action::OgImage(_) => {
+                return Err(text(500, "Failed to load fortune.\n"))
+            }
+        }
+    } else if !query.category.is_empty() {
+        let locale = find_locale(manifest, query.locale).expect("validated locale");
+        if !locale.categories.iter().any(|name| name == query.category) {
+            return Err(text(404, "Fortune category not found.\n"));
+        }
+        None
+    } else {
+        None
+    };
+    Ok(OgImage {
+        locale: query.locale.to_string(),
+        cow: query.cow.to_string(),
+        fortune,
+    })
+}
+
+fn parse_og_query<'a>(manifest: &Manifest, query: Option<&'a str>) -> Result<OgQuery<'a>, Reply> {
+    let Some(query) = query else {
+        return Ok(OgQuery {
+            locale: "en",
+            category: "",
+            fortune: None,
+            cow: "default",
+        });
+    };
+
+    let mut locale = None;
+    let mut category = None;
+    let mut fortune = None;
+    let mut cow = None;
+    for parameter in query.split('&') {
+        if parameter.is_empty() {
+            return Err(text(400, "Malformed query string.\n"));
+        }
+        let Some((name, value)) = parameter.split_once('=') else {
+            return Err(text(400, "Malformed query string.\n"));
+        };
+        let slot = match name {
+            "locale" => &mut locale,
+            "category" => &mut category,
+            "fortune" => &mut fortune,
+            "cow" => &mut cow,
+            _ => return Err(text(400, OG_QUERY)),
+        };
+        if slot.replace(value).is_some() {
+            return Err(text(400, OG_QUERY));
+        }
+    }
+
+    let locale = locale.unwrap_or("en");
+    if find_locale(manifest, locale).is_none() {
+        return Err(text(400, "Unsupported locale.\n"));
+    }
+    let category = category.unwrap_or_default();
+    if !category.is_empty() && !valid_resource_name(category) {
+        return Err(text(400, "Invalid category.\n"));
+    }
+    if let Some(id) = fortune {
+        if parse_fortune_id(id).is_none() {
+            return Err(text(400, "Invalid fortune.\n"));
+        }
+    }
+    let cow = cow.unwrap_or("default");
+    if !valid_resource_name(cow) {
+        return Err(text(400, "Invalid cow.\n"));
+    }
+
+    Ok(OgQuery {
+        locale,
+        category,
+        fortune,
+        cow,
+    })
+}
+
+const OG_QUERY: &str = "Only one locale, category, cow, and fortune parameter are supported.\n";
+
+/// Resolves the fortune a permalink would show. Locale may be omitted: English
+/// is tried first, then the other installed locales, so an id that exists in
+/// only one language still previews. The image URL this builds always names
+/// the locale that actually holds the fortune.
+pub fn share_target(manifest: &Manifest, query: Option<&str>) -> Option<ShareTarget> {
+    let query = query?;
+    let fortune = single(query, "fortune").filter(|id| parse_fortune_id(id).is_some())?;
+    let locale_param = single(query, "locale").filter(|id| find_locale(manifest, id).is_some());
+    let cow_param = single(query, "cow")
+        .filter(|name| valid_resource_name(name) && manifest.cows.iter().any(|cow| cow == name));
+    let category_param = single(query, "category").filter(|name| valid_resource_name(name));
+    let cow = cow_param.unwrap_or("default");
+    if !manifest.cows.iter().any(|name| name == cow) {
+        return None;
+    }
+
+    let locales: Vec<&Locale> = if let Some(id) = locale_param {
+        find_locale(manifest, id).into_iter().collect()
+    } else {
+        let mut locales: Vec<&Locale> = manifest.locales.iter().collect();
+        locales.sort_by_key(|locale| locale.id != "en");
+        locales
+    };
+
+    for locale in locales {
+        let category = match category_param {
+            Some(name) if locale.categories.iter().any(|category| category == name) => name,
+            Some(_) if locale_param.is_some() => "",
+            Some(_) => continue,
+            None => "",
+        };
+        if let Action::Fortune {
+            database, index, ..
+        } = pinned_fortune(locale, category, fortune)
+        {
+            return Some(ShareTarget {
+                locale: locale.id.clone(),
+                cow: cow.to_string(),
+                fortune_id: fortune_id(&database, index),
+                page_query: page_query(
+                    locale_param.is_some() || locale.id != "en",
+                    &locale.id,
+                    cow_param.is_some().then_some(cow),
+                    (category_param.is_some() && category == category_param.unwrap_or_default())
+                        .then_some(category),
+                    fortune,
+                ),
+                database,
+                index,
+            });
+        }
+    }
+    None
+}
+
+fn page_query(
+    include_locale: bool,
+    locale: &str,
+    cow: Option<&str>,
+    category: Option<&str>,
+    fortune: &str,
+) -> String {
+    let mut query = String::new();
+    let mut push = |name: &str, value: &str| {
+        if !query.is_empty() {
+            query.push('&');
+        }
+        query.push_str(name);
+        query.push('=');
+        query.push_str(value);
+    };
+    if include_locale {
+        push("locale", locale);
+    }
+    if let Some(cow) = cow {
+        push("cow", cow);
+    }
+    if let Some(category) = category.filter(|category| !category.is_empty()) {
+        push("category", category);
+    }
+    push("fortune", fortune);
+    query
+}
+
+fn single<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    let mut found = None;
+    let prefix = format!("{name}=");
+    for parameter in query.split('&') {
+        if let Some(value) = parameter.strip_prefix(&prefix) {
+            if value.is_empty() || found.replace(value).is_some() {
+                return None;
+            }
+        }
+    }
+    found
 }
 
 /// Mirrors the API Gateway CORS policy this Worker replaces.
@@ -663,5 +894,86 @@ mod tests {
         assert!(preflight
             .headers
             .contains(&("access-control-max-age", "3600".to_string())));
+    }
+
+    #[test]
+    fn og_images_use_the_same_fortune_rules() {
+        assert_eq!(
+            get("/og.png", None),
+            Action::OgImage(OgImage {
+                locale: "en".to_string(),
+                cow: "default".to_string(),
+                fortune: None,
+            })
+        );
+        assert_eq!(
+            get("/og.png", Some("locale=pt&cow=tux&fortune=brasil-3")),
+            Action::OgImage(OgImage {
+                locale: "pt".to_string(),
+                cow: "tux".to_string(),
+                fortune: Some(OgFortune {
+                    database: "brasil".to_string(),
+                    index: 3,
+                }),
+            })
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("fortune=not-a-fortune"))).body,
+            "Invalid fortune.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("cow=../etc"))).body,
+            "Invalid cow.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("cow=moose"))).body,
+            "Cow not found.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("locale=fr"))).body,
+            "Unsupported locale.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("fortune=art-0&fortune=zippy-1"),)).body,
+            "Only one locale, category, cow, and fortune parameter are supported.\n"
+        );
+        assert_eq!(reply_of(get("/og.png", Some("category=nope"))).status, 404);
+    }
+
+    #[test]
+    fn share_targets_follow_permalinks_and_skip_unknown_ids() {
+        let pinned = share_target(&manifest(), Some("locale=pt&cow=tux&fortune=brasil-3"))
+            .expect("permalink");
+        assert_eq!(pinned.locale, "pt");
+        assert_eq!(pinned.cow, "tux");
+        assert_eq!(pinned.database, "brasil");
+        assert_eq!(pinned.index, 3);
+        assert_eq!(pinned.fortune_id, "brasil-3");
+        assert_eq!(pinned.page_query, "locale=pt&cow=tux&fortune=brasil-3");
+
+        let implied = share_target(&manifest(), Some("fortune=brasil-1")).expect("locale search");
+        assert_eq!(implied.locale, "pt");
+        assert_eq!(implied.page_query, "locale=pt&fortune=brasil-1");
+
+        let english = share_target(&manifest(), Some("cow=tux&fortune=zippy-2")).expect("en");
+        assert_eq!(english.locale, "en");
+        assert_eq!(english.page_query, "cow=tux&fortune=zippy-2");
+
+        assert_eq!(
+            share_target(&manifest(), Some("category=art&fortune=art-1"))
+                .expect("category")
+                .page_query,
+            "category=art&fortune=art-1"
+        );
+        assert!(share_target(&manifest(), Some("category=art&fortune=zippy-0")).is_none());
+        assert!(share_target(&manifest(), Some("fortune=art-99")).is_none());
+        assert!(share_target(&manifest(), Some("locale=pt")).is_none());
+        assert!(share_target(&manifest(), Some("cow=moose&fortune=art-0")).is_some());
+        assert_eq!(
+            share_target(&manifest(), Some("cow=moose&fortune=art-0"))
+                .expect("fallback cow")
+                .cow,
+            "default"
+        );
     }
 }

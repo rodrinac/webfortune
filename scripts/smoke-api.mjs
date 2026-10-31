@@ -5,6 +5,30 @@ const base = (process.env.API_URL || "http://127.0.0.1:8080").replace(
 );
 const origin = process.env.CORS_ORIGIN;
 
+function assertPng(bytes, label) {
+  assert.equal(
+    Buffer.from(bytes.subarray(0, 8)).toString("hex"),
+    "89504e470d0a1a0a",
+    `${label} signature`,
+  );
+  assert.equal(bytes.readUInt32BE(16), 1200, `${label} width`);
+  assert.equal(bytes.readUInt32BE(20), 630, `${label} height`);
+  assert.ok(bytes.length < 300 * 1024, `${label} is ${bytes.length} bytes`);
+  assert.ok(bytes.length > 1024, `${label} is unexpectedly small`);
+}
+
+async function png(path) {
+  const response = await request(path);
+  assert.match(
+    response.headers.get("content-type") || "",
+    /^image\/png\b/,
+    path,
+  );
+  assert.match(response.headers.get("cache-control") || "", /max-age=/, path);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assertPng(bytes, path);
+}
+
 function assertFortuneId(id, label) {
   assert.equal(typeof id, "string", `${label} x-fortune-id`);
   const split = id.lastIndexOf("-");
@@ -98,6 +122,18 @@ for (const locale of ["de", "es"]) {
 const portugueseFortune = await (await request("/?locale=pt")).text();
 assert.ok(portugueseFortune.trim(), "pt fortune is empty");
 assert.doesNotMatch(portugueseFortune, /\uFFFD/, "pt is not valid UTF-8");
+await png("/og.png");
+await png(`/og.png?fortune=${encodeURIComponent(randomId)}`);
+const portuguese = await request("/?locale=pt");
+const portugueseId = portuguese.headers.get("x-fortune-id");
+assertFortuneId(portugueseId, "portuguese");
+await portuguese.text();
+await png(
+  `/og.png?locale=pt&fortune=${encodeURIComponent(portugueseId)}`,
+);
+await request("/og.png?fortune=not-a-fortune", 400);
+await request("/og.png?cow=../etc", 400);
+await request("/og.png?cow=not-a-real-cow", 404);
 await request("/?category=not_a_real_category_8675309", 404);
 await request("/?category=../etc/passwd", 400);
 await request("/?category=a&category=b", 400);

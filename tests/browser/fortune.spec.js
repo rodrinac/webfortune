@@ -483,6 +483,32 @@ test("loading gate covers only startup and language changes localize SEO", async
     "content",
     "https://webfortune.app/",
   );
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+    "content",
+    "https://webfortune.app/og.png",
+  );
+  await expect(page.locator('meta[property="og:image:width"]')).toHaveAttribute(
+    "content",
+    "1200",
+  );
+  await expect(page.locator('meta[property="og:image:height"]')).toHaveAttribute(
+    "content",
+    "630",
+  );
+  await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute(
+    "content",
+    "summary_large_image",
+  );
+  await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute(
+    "content",
+    "https://webfortune.app/og.png",
+  );
+  const preview = await page.request.get("/og.png");
+  expect(preview.headers()["content-type"]).toContain("image/png");
+  const previewBytes = await preview.body();
+  expect(previewBytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+  expect(previewBytes.readUInt32BE(16)).toBe(1200);
+  expect(previewBytes.readUInt32BE(20)).toBe(630);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     "href",
     "https://webfortune.app/",

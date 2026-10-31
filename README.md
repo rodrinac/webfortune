@@ -35,6 +35,7 @@ Open the Vite URL. The UI defaults to `/api`, which Vite forwards to the local W
 | --- | --- |
 | `GET /` | Random fortune as UTF-8 plain text. The response includes `x-fortune-id`, for example `computers-42`. |
 | `GET /?fortune=computers-42` | That exact fortune. Invalid ids are 400; an unknown database or out-of-range index is 404. |
+| `GET /og.png?locale=en&fortune=computers-42&cow=tux` | 1200×630 PNG of that cow saying that fortune. Omit `fortune` for the branded card. |
 | `GET /?category=computers` | Fortune from an installed category |
 | `GET /categories` | JSON array of installed category names |
 | `GET /cows` | JSON array of installed cow names |
