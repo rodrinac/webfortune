@@ -27,6 +27,9 @@ async function png(path) {
   assert.match(response.headers.get("cache-control") || "", /max-age=/, path);
   const bytes = Buffer.from(await response.arrayBuffer());
   assertPng(bytes, path);
+  const advertised = response.headers.get("content-length");
+  if (advertised !== null) assert.equal(Number(advertised), bytes.length, path);
+  return bytes.length;
 }
 
 function assertFortuneId(id, label) {
@@ -48,11 +51,11 @@ function assertFortuneId(id, label) {
 const SMOKE_REQUEST_BUDGET = 46;
 let requests = 0;
 
-async function request(path, status = 200, method = "GET") {
+async function request(path, status = 200, method = "GET", headers = {}) {
   requests += 1;
   const response = await fetch(`${base}${path}`, {
     method,
-    headers: origin ? { Origin: origin } : {},
+    headers: { ...(origin ? { Origin: origin } : {}), ...headers },
     signal: AbortSignal.timeout(20000),
   });
   assert.equal(response.status, status, `${method} ${path}`);
@@ -62,9 +65,16 @@ async function request(path, status = 200, method = "GET") {
       origin,
       `CORS on ${path}`,
     );
+  if (method === "HEAD") {
+    const body = await response.arrayBuffer();
+    assert.equal(body.byteLength, 0, `${method} ${path} has a body`);
+  }
   return response;
 }
-assert.equal((await (await request("/health")).json()).status, "ok");
+const health = await request("/health");
+assert.equal((await health.json()).status, "ok");
+const healthType = health.headers.get("content-type");
+const healthLength = health.headers.get("content-length");
 const locales = await (await request("/locales")).json();
 assert.deepEqual(
   locales.map(({ id }) => id),
@@ -139,8 +149,11 @@ await request("/?category=not_a_real_category_8675309", 404);
 await request("/?category=../etc/passwd", 400);
 await request("/?category=a&category=b", 400);
 await request("/missing", 404);
-await request("/", 405, "POST");
-await png("/og.png");
+const rejected = await request("/", 405, "POST");
+assert.match(rejected.headers.get("allow") || "", /\bGET\b/);
+assert.match(rejected.headers.get("allow") || "", /\bHEAD\b/);
+assert.equal(await rejected.text(), "Method not allowed.\n");
+const brandedLength = await png("/og.png");
 await png(`/og.png?fortune=${encodeURIComponent(randomId)}`);
 await png(
   `/og.png?locale=pt&fortune=${encodeURIComponent(portugueseId)}`,
@@ -148,6 +161,27 @@ await png(
 await request("/og.png?fortune=not-a-fortune", 400);
 await request("/og.png?cow=../etc", 400);
 await request("/og.png?cow=not-a-real-cow", 404);
+const headHealth = await request("/health", 200, "HEAD");
+assert.equal(headHealth.headers.get("content-type"), healthType);
+assert.match(headHealth.headers.get("content-type") || "", /application\/json/);
+if (healthLength !== null) {
+  assert.equal(headHealth.headers.get("content-length"), healthLength);
+}
+const headFortune = await request("/", 200, "HEAD");
+assert.match(headFortune.headers.get("content-type") || "", /text\/plain/);
+assert.match(headFortune.headers.get("cache-control") || "", /no-store/);
+assertFortuneId(headFortune.headers.get("x-fortune-id"), "HEAD /");
+const headLength = headFortune.headers.get("content-length");
+assert.ok(headLength !== null && Number(headLength) > 0, "HEAD / content-length");
+const headImage = await request("/og.png", 200, "HEAD");
+assert.match(headImage.headers.get("content-type") || "", /^image\/png\b/);
+assert.match(headImage.headers.get("cache-control") || "", /max-age=/);
+assert.equal(headImage.headers.get("content-length"), String(brandedLength));
+const ranged = await request("/og.png", 200, "GET", { Range: "bytes=0-524287" });
+assert.equal(ranged.headers.get("content-range"), null);
+const rangedBytes = Buffer.from(await ranged.arrayBuffer());
+assertPng(rangedBytes, "Range /og.png");
+assert.equal(rangedBytes.length, brandedLength);
 assert.ok(
   requests <= SMOKE_REQUEST_BUDGET,
   `smoke sent ${requests} requests; budget is ${SMOKE_REQUEST_BUDGET} so health probes fit in the 50/10s limit`,

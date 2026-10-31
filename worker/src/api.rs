@@ -289,11 +289,12 @@ pub fn handle(
             body: String::new(),
         });
     }
-    if method != "GET" {
+    // HEAD is routed like GET. The runtime drops the body and keeps the headers.
+    if method != "GET" && method != "HEAD" {
         return Action::Reply(Reply {
             status: 405,
             headers: vec![
-                ("allow", "GET".to_string()),
+                ("allow", "GET, HEAD".to_string()),
                 ("content-type", TEXT.to_string()),
             ],
             body: "Method not allowed.\n".to_string(),
@@ -850,10 +851,36 @@ mod tests {
     }
 
     #[test]
-    fn only_get_and_preflight_are_allowed() {
-        let reply = reply_of(handle("POST", "/", None, &manifest(), 0.0));
-        assert_eq!(reply.status, 405);
-        assert!(reply.headers.contains(&("allow", "GET".to_string())));
+    fn head_matches_get_and_other_methods_stay_rejected() {
+        for (path, query) in [
+            ("/", None),
+            ("/", Some("fortune=zippy-2")),
+            ("/health", None),
+            ("/locales", None),
+            ("/og.png", None),
+            ("/og.png", Some("cow=tux&fortune=art-1")),
+            ("/cows/tux", None),
+            ("/missing", None),
+        ] {
+            assert_eq!(
+                handle("HEAD", path, query, &manifest(), 0.4),
+                handle("GET", path, query, &manifest(), 0.4),
+                "{path} {query:?}"
+            );
+        }
+
+        for method in ["POST", "PUT", "DELETE", "PATCH"] {
+            let reply = reply_of(handle(
+                method,
+                "/og.png",
+                Some("fortune=art-0"),
+                &manifest(),
+                0.0,
+            ));
+            assert_eq!(reply.status, 405, "{method}");
+            assert_eq!(reply.body, "Method not allowed.\n");
+            assert!(reply.headers.contains(&("allow", "GET, HEAD".to_string())));
+        }
         assert_eq!(
             reply_of(handle("OPTIONS", "/", None, &manifest(), 0.0)).status,
             204
