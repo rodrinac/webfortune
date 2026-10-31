@@ -13,8 +13,8 @@
   // See docs/deployment.md.
   "routes": [
     { "pattern": "api.webfortune.app", "custom_domain": true },
-    // { "pattern": "webfortune.app/*", "zone_name": "webfortune.app" },
-    // { "pattern": "www.webfortune.app/*", "zone_name": "webfortune.app" },
+    { "pattern": "webfortune.app/*", "zone_name": "webfortune.app" },
+    { "pattern": "www.webfortune.app/*", "zone_name": "webfortune.app" }
   ],
   "build": {
     "command": "worker-build --release"
