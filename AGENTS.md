@@ -33,7 +33,7 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
    - Triggered by commits starting with `fix:`, `fix(scope):`, or any other conventional commit type (`chore:`, `refactor:`, `docs:`, `test:`, `style:`, `perf:`, `ci:`).
 
 4. **Skipped Bump**:
-   - Commits containing `[skip version-bump]` in their message (such as automated bump commits) or non-conventional commit messages with no release-worthy changes will be skipped.
+   - Automated release commits `chore(release): vX.Y.Z`, commits containing `[skip version-bump]`, or non-conventional commit messages with no release-worthy changes will be skipped.
 
 ### Pipeline Flow
 

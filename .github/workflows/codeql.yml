@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Skip only the push that lands the bump commit; analysis ran on earlier main pushes.
-      SKIP_VALIDATION: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[skip version-bump]') }}
+      SKIP_VALIDATION: "${{ github.event_name == 'push' && (contains(github.event.head_commit.message, '[skip version-bump]') || startsWith(github.event.head_commit.message, 'chore(release): v0.') || startsWith(github.event.head_commit.message, 'chore(release): v1.') || startsWith(github.event.head_commit.message, 'chore(release): v2.') || startsWith(github.event.head_commit.message, 'chore(release): v3.') || startsWith(github.event.head_commit.message, 'chore(release): v4.') || startsWith(github.event.head_commit.message, 'chore(release): v5.') || startsWith(github.event.head_commit.message, 'chore(release): v6.') || startsWith(github.event.head_commit.message, 'chore(release): v7.') || startsWith(github.event.head_commit.message, 'chore(release): v8.') || startsWith(github.event.head_commit.message, 'chore(release): v9.')) }}"
 
     steps:
       - name: Accept version bump
