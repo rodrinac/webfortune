@@ -40,7 +40,7 @@ Open the Vite URL. The UI defaults to `/api`, which Vite forwards to the local W
 | `GET /categories` | JSON array of installed category names |
 | `GET /cows` | JSON array of installed cow names |
 | `GET /cows/{name}` | ASCII artwork for an installed cow |
-| `GET /health` | `{"status":"ok"}` when fortune data is available |
+| `GET /health` | `{"status":"ok","version":"<x.y.z>"}` when fortune data is available. `version` is the release the Worker was built from (`package.json`, no leading `v`). |
 
 A fortune id is `<database>-<index>`. The index is a decimal with no leading zeros. Database names use the same resource-name rules as categories and may contain hyphens, so the id is split on the last hyphen. `locale` and `category` still work alongside `fortune`; when a category is set, the id's database must be that category.
 
@@ -50,7 +50,7 @@ GET and HEAD are supported. The Worker handles browser OPTIONS and CORS, and exp
 
 ## Deployment
 
-See [the deployment runbook](docs/deployment.md). A new `vX.Y.Z` tag smoke-tests the public API and publishes GitHub Pages. Workers Builds runs `npm run worker:deploy` for that release commit. A failed smoke test blocks the Pages deployment. Deployments are serialized.
+See [the deployment runbook](docs/deployment.md). A new `vX.Y.Z` tag waits until `GET /health` reports that release, smoke-tests the public API, and publishes GitHub Pages. Workers Builds runs `npm run worker:deploy` for that release commit. A failed smoke test blocks the Pages deployment. Deployments are serialized.
 
 For a standalone production UI build:
 
