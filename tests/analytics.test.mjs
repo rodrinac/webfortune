@@ -6,6 +6,7 @@ import {
   applyAnalyticsChoice,
   clearAnalyticsCookies,
   eventParams,
+  googleTagBootstrap,
   googleTagSnippet,
   installGoogleAnalytics,
   measurementId,
@@ -93,14 +94,24 @@ test("drops fortune text and oversized values from event parameters", () => {
   );
 });
 
-test("puts the Google tag in the page with storage denied until allow", () => {
+test("puts the Google tag in external scripts with storage denied until allow", () => {
   const snippet = googleTagSnippet("G-AB12CD34");
-  assert.match(snippet, /src="https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=G-AB12CD34"/);
-  assert.match(snippet, /webfortune-analytics/);
-  assert.match(snippet, /analytics_storage":"denied"/);
-  assert.equal(snippet.includes("?fortune"), false);
+  assert.equal(
+    snippet,
+    `<script src="./gtag-bootstrap.js"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-AB12CD34"></script>`,
+  );
+  assert.equal(snippet.includes("function gtag"), false);
+  const bootstrap = googleTagBootstrap("G-AB12CD34");
+  assert.match(bootstrap, /function gtag\(\)\{dataLayer\.push\(arguments\);\}/);
+  assert.match(bootstrap, /webfortune-analytics/);
+  assert.match(bootstrap, /analytics_storage":"denied"/);
+  assert.match(bootstrap, /analytics_storage":"granted"/);
+  assert.equal(bootstrap.includes("?fortune"), false);
   assert.equal(googleTagSnippet(""), "");
+  assert.equal(googleTagBootstrap(""), "");
   assert.throws(() => googleTagSnippet("UA-123"), /G-XXXXXXXX/);
+  assert.throws(() => googleTagBootstrap("UA-123"), /G-XXXXXXXX/);
 });
 
 test("loads the Google tag on startup and only once", () => {

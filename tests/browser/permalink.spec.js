@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 const bodies = {
   "love-2": "O amor da vaca é paciente.",

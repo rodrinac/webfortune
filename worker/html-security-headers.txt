@@ -1,0 +1,7 @@
+# Security headers for HTML on webfortune.app and www.webfortune.app.
+# The Worker and the Vite dev/preview server both read this file.
+content-security-policy: default-src 'self'; script-src 'self' https://www.googletagmanager.com; connect-src 'self' https://api.webfortune.app https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com; img-src 'self' data: blob: https://*.google-analytics.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+referrer-policy: strict-origin-when-cross-origin
+x-content-type-options: nosniff
+permissions-policy: camera=(), microphone=(), geolocation=(), payment=()
+x-frame-options: DENY

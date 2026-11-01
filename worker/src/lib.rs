@@ -1,6 +1,7 @@
 pub mod api;
 mod card;
 mod preview;
+mod security;
 
 #[cfg(target_arch = "wasm32")]
 mod runtime {
@@ -14,7 +15,7 @@ mod runtime {
     };
 
     use crate::api::{self, Action, Manifest, OgImage, Reply};
-    use crate::{card, preview};
+    use crate::{card, preview, security};
 
     // Assets are immutable per deployment, so each isolate parses them once.
     thread_local! {
@@ -244,18 +245,20 @@ mod runtime {
         let query = url.query().map(str::to_owned);
         let Some(plan) = preview::permalink_plan(request.method().as_ref(), query.as_deref())
         else {
-            return Fetch::Request(request).send().await;
+            // Non-permalink requests keep the origin body, status, and cache
+            // headers. HTML also gets the security headers; other assets do not.
+            let mut response = Fetch::Request(request).send().await?;
+            apply_html_security_headers(&mut response)?;
+            return Ok(response);
         };
 
         // Fetch the full document. The client may have sent HEAD or Range;
         // Pages would answer those with no body or a 206 of the static tags.
         let upstream = origin_document(&request, &plan)?;
         let mut origin = Fetch::Request(upstream).send().await?;
-        if origin.status_code() != 200 {
-            return maybe_head(origin, plan.omit_body);
-        }
         let content_type = origin.headers().get("content-type")?.unwrap_or_default();
-        if !content_type.to_ascii_lowercase().contains("text/html") {
+        if origin.status_code() != 200 || !security::is_html_content_type(&content_type) {
+            apply_html_security_headers(&mut origin)?;
             return maybe_head(origin, plan.omit_body);
         }
         let html = origin.text().await?;
@@ -285,10 +288,8 @@ mod runtime {
             .set("cache-control", "private, no-store")?;
         response
             .headers_mut()
-            .set("x-content-type-options", "nosniff")?;
-        response
-            .headers_mut()
             .set("x-webfortune-preview", "fortune")?;
+        apply_html_security_headers(&mut response)?;
         // Range is ignored: the rewritten document is the full 200 representation.
         maybe_head(response, plan.omit_body)
     }
@@ -311,6 +312,26 @@ mod runtime {
         response
             .headers_mut()
             .set("cache-control", "private, no-store")?;
+        apply_html_security_headers(&mut response)?;
         maybe_head(response, omit_body)
+    }
+
+    /// Adds the Pages security headers when the response is HTML.
+    ///
+    /// A response from `fetch` keeps the edge `Headers` object, whose guard is
+    /// immutable. Copying into a new header list makes the additions possible
+    /// and leaves every origin header, including cache-control, in place.
+    /// Non-HTML responses are returned untouched.
+    fn apply_html_security_headers(response: &mut Response) -> Result<()> {
+        let content_type = response.headers().get("content-type")?.unwrap_or_default();
+        if !security::is_html_content_type(&content_type) {
+            return Ok(());
+        }
+        let headers = response.headers().clone();
+        for (name, value) in security::html_security_headers() {
+            headers.set(&name, &value)?;
+        }
+        *response.headers_mut() = headers;
+        Ok(())
     }
 }
