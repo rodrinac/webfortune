@@ -62,6 +62,8 @@ test("loads a fortune, selects categories, and stays within the viewport", async
     });
   });
   await page.goto("/");
+  await expect(page.locator("#analytics-consent")).toBeHidden();
+  await expect(page.locator("#analytics-preferences")).toBeHidden();
   await expect(page.locator("#cow")).toContainText("(oo)");
   await expect(page.locator("#fortune-text")).toHaveText(
     "The secret of getting ahead is getting started.\nKeep moving forward.",

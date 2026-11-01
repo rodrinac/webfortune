@@ -74,6 +74,30 @@
         >
       </header>
 
+      <div
+        id="analytics-consent"
+        class="analytics-consent"
+        role="region"
+        aria-labelledby="analytics-consent-text"
+        hidden
+      >
+        <p id="analytics-consent-text"></p>
+        <div class="analytics-consent-actions">
+          <button
+            data-slot="button"
+            data-variant="outline"
+            type="button"
+            id="analytics-reject"
+          >No thanks</button>
+          <button
+            data-slot="button"
+            data-variant="default"
+            type="button"
+            id="analytics-accept"
+          >Allow</button>
+        </div>
+      </div>
+
       <main class="w-full min-w-0 max-w-[840px]">
         <div class="intro text-center">
           <p class="eyebrow">
@@ -186,6 +210,12 @@
             rel="noopener noreferrer"
             id="support-link"
           >Buy me a coffee ☕</a>
+          <button
+            type="button"
+            class="analytics-preferences"
+            id="analytics-preferences"
+            hidden
+          >Analytics</button>
         </div>
         <span class="palette" aria-label="Catppuccin Mocha theme"
           ><i></i><i></i><i></i><i></i><span>Catppuccin Mocha</span></span
