@@ -1,5 +1,9 @@
-//! 1200×630 Catppuccin Mocha preview card. Crawlers require a real PNG, so this
+//! 1200×1200 Catppuccin Mocha preview card. Crawlers require a real PNG, so this
 //! rasterizes with the bundled JetBrains Mono and encodes RGB pixels directly.
+//!
+//! The canvas is square, matching link previews that place a large image above
+//! the title. The header row stays the same size; the terminal panel takes the
+//! extra height.
 //!
 //! The host library target does not link the Worker runtime, which is the only
 //! non-test caller. Dead-code checks still run for the wasm32 build.
@@ -11,7 +15,7 @@ use std::sync::OnceLock;
 use fontdue::Font;
 
 pub const CARD_WIDTH: u32 = 1200;
-pub const CARD_HEIGHT: u32 = 630;
+pub const CARD_HEIGHT: u32 = 1200;
 pub const BRAND_MESSAGE: &str = "A little wisdom from a very wise cow.";
 pub const BRAND_TAGLINE: &str = "wisdom, with a moo";
 
@@ -38,7 +42,7 @@ const PREFERRED_WRAP: usize = 42;
 const MIN_WRAP: usize = 12;
 const MAX_WRAP: usize = 96;
 /// Readable floor. Taller cows shrink toward this, then reflow and truncate.
-/// Daemon's 22-row block fits just above 11px; a higher floor would cut the cow.
+/// The square terminal lets a 22-row cow such as daemon sit well above this.
 const MIN_FONT_SIZE: f32 = 11.0;
 /// Cap so a one-line fortune cannot dwarf the wordmark.
 const MAX_FONT_SIZE: f32 = 56.0;
@@ -48,6 +52,16 @@ const COMMAND_SIZE: f32 = 22.0;
 const FIT_PAD: f32 = 1.0;
 const COMMAND_GAP: f32 = 6.0;
 const DOMAIN_GAP: f32 = 6.0;
+/// Header text inset. The wordmark and tagline stay on this row; the square
+/// canvas does not scale them.
+const HEADER_INSET_X: f32 = 56.0;
+const HEADER_BASELINE: f32 = 78.0;
+/// Terminal frame. Width matches the old landscape card. Height consumes
+/// everything between the header and the same bottom margin, so the panel
+/// grows from 460px to fill the square.
+const TERMINAL_X: f32 = 48.0;
+const TERMINAL_TOP: f32 = 118.0;
+const TERMINAL_BOTTOM_MARGIN: f32 = 52.0;
 
 pub struct Card<'a> {
     pub message: &'a str,
@@ -113,8 +127,8 @@ fn draw_header(canvas: &mut Canvas, tagline: &str) {
     let name = "webfortune";
     let mark_size = 32.0;
     let name_size = 40.0;
-    let baseline = 78.0;
-    let mut x = 56.0;
+    let baseline = HEADER_BASELINE;
+    let mut x = HEADER_INSET_X;
     x = draw_text(canvas, font, mark, x, baseline, mark_size, MAUVE).0 + 16.0;
     let (end, _) = draw_text(canvas, font, name, x, baseline, name_size, TEXT);
     fill_circle(canvas, end + 14.0, baseline - 8.0, 5.5, GOLD);
@@ -125,7 +139,7 @@ fn draw_header(canvas: &mut Canvas, tagline: &str) {
         canvas,
         font,
         tagline,
-        1144.0 - width,
+        CARD_WIDTH as f32 - HEADER_INSET_X - width,
         baseline,
         tag_size,
         SUBTEXT,
@@ -262,10 +276,10 @@ struct LineBox {
 
 fn terminal_frame() -> Rect {
     Rect {
-        x: 48.0,
-        y: 118.0,
-        w: 1104.0,
-        h: 460.0,
+        x: TERMINAL_X,
+        y: TERMINAL_TOP,
+        w: CARD_WIDTH as f32 - TERMINAL_X * 2.0,
+        h: CARD_HEIGHT as f32 - TERMINAL_TOP - TERMINAL_BOTTOM_MARGIN,
     }
 }
 
@@ -383,12 +397,24 @@ struct Composed {
 fn layout_speech(message: &str, cow: &str, content: Rect) -> SpeechBlock {
     let font = font();
     let mut cache = GlyphCache::default();
-    let message: String = message.chars().take(MESSAGE_CHAR_CAP).collect();
+    let message = cap_message(message);
     let cow = normalize_cow(cow);
     let alphabet = speech_alphabet(&message, &cow);
     let lines = arrange(&message, &cow, content, &alphabet, font, &mut cache);
     let size = choose_size(font, &lines, content, &alphabet, &mut cache).unwrap_or(MIN_FONT_SIZE);
     position(lines, size, content, font, &alphabet, &mut cache)
+}
+
+/// The fitter sees at most `MESSAGE_CHAR_CAP` characters. A longer fortune
+/// keeps that many and ends with an ellipsis, so the taller square panel
+/// does not reveal a mid-word cut.
+fn cap_message(message: &str) -> String {
+    let total = message.chars().count();
+    let mut capped: String = message.chars().take(MESSAGE_CHAR_CAP).collect();
+    if total > MESSAGE_CHAR_CAP {
+        mark_fortune_ellipsis(&mut capped);
+    }
+    capped
 }
 
 fn speech_alphabet(message: &str, cow: &[String]) -> String {
@@ -1226,7 +1252,7 @@ mod tests {
     }
 
     #[test]
-    fn brand_card_is_a_small_1200_by_630_png() {
+    fn brand_card_is_a_small_1200_by_1200_png() {
         let png = render_brand_card();
         assert_eq!(png_size(&png), (CARD_WIDTH, CARD_HEIGHT));
         assert!(png.len() < 300 * 1024, "preview is {} bytes", png.len());
@@ -1245,13 +1271,13 @@ mod tests {
             "tux",
         );
         assert_ne!(first, second);
-        assert_eq!(png_size(&second), (1200, 630));
+        assert_eq!(png_size(&second), (CARD_WIDTH, CARD_HEIGHT));
         assert!(second.len() < 300 * 1024);
         let huge = "wisdom ".repeat(400);
         let clipped = render_fortune_card(&huge, "", "default");
-        assert_eq!(png_size(&clipped), (1200, 630));
+        assert_eq!(png_size(&clipped), (CARD_WIDTH, CARD_HEIGHT));
         assert!(clipped.len() < 300 * 1024);
-        let stacked = "moo\n".repeat(80);
+        let stacked = "moo\n".repeat(160);
         assert!(
             speech(&stacked, DEFAULT_COW).contains('…'),
             "a fortune with more rows than the panel is truncated"
@@ -1260,33 +1286,34 @@ mod tests {
 
     #[test]
     fn speech_block_fills_the_terminal_without_overflow() {
+        let default_cow = installed_cow("default");
+        let daemon_cow = installed_cow("daemon");
+        let stegosaurus_cow = installed_cow("stegosaurus");
+        let long_sentence = "The cow that mooed at midnight still had more to say about grass, rain, and the long road home. ";
+        let long_message = long_sentence.repeat(12);
         let cases = [
-            ("default", BRAND_MESSAGE, installed_cow("default")),
-            ("daemon", BRAND_MESSAGE, installed_cow("daemon")),
-            ("stegosaurus", BRAND_MESSAGE, installed_cow("stegosaurus")),
-            (
-                "long",
-                "The cow that mooed at midnight still had more to say about grass, rain, and the long road home. ",
-                installed_cow("default"),
-            ),
+            ("default", BRAND_MESSAGE, default_cow.as_str()),
+            ("daemon", BRAND_MESSAGE, daemon_cow.as_str()),
+            ("stegosaurus", BRAND_MESSAGE, stegosaurus_cow.as_str()),
+            ("long", long_message.as_str(), default_cow.as_str()),
         ];
-        let long_message = cases[3].1.repeat(12);
+        let content = speech_content(terminal_frame(), "fortune | cowsay");
+        assert!(
+            content.h > 700.0,
+            "the square terminal should leave a tall speech box, got {}",
+            content.h
+        );
         let mut sizes = std::collections::HashMap::new();
         for (name, message, cow) in cases {
-            let message = if name == "long" {
-                long_message.as_str()
-            } else {
-                message
-            };
             let command = if name == "default" || name == "long" {
                 "fortune | cowsay".to_string()
             } else {
                 format!("fortune | cowsay -f {name}")
             };
-            let block = layout_speech(message, &cow, speech_content(terminal_frame(), &command));
+            let block = layout_speech(message, cow, speech_content(terminal_frame(), &command));
             assert_block_inside(&block, name);
             let png =
-                render_fortune_card(message, &cow, if name == "long" { "default" } else { name });
+                render_fortune_card(message, cow, if name == "long" { "default" } else { name });
             assert_eq!(png_size(&png), (CARD_WIDTH, CARD_HEIGHT));
             assert!(png.len() < 300 * 1024, "{name} png is {} bytes", png.len());
             assert_mauve_inside(&png, block.content, name);
@@ -1304,22 +1331,72 @@ mod tests {
                     "{name} should fit without truncating the cow"
                 );
             }
+            if name == "long" {
+                assert!(
+                    block.rows.iter().any(|row| row.text.contains('…')),
+                    "a fortune past the character cap should ellipsize"
+                );
+            }
             sizes.insert(name, block.size);
         }
         let default_size = sizes["default"];
         let former = former_default_font_size();
+        // Stegosaurus is wide, so the shared terminal width keeps it smaller.
+        // Daemon is tall; on the 460px landscape panel it was the smallest,
+        // and the square panel lets it outgrow that wide cow.
         assert!(
-            default_size > sizes["stegosaurus"] && sizes["stegosaurus"] > sizes["daemon"],
-            "shorter cows should set larger type: default {default_size}, stegosaurus {}, daemon {}",
-            sizes["stegosaurus"],
-            sizes["daemon"]
+            default_size > sizes["daemon"] && sizes["daemon"] > sizes["stegosaurus"],
+            "square panel type: default {default_size}, daemon {}, stegosaurus {}",
+            sizes["daemon"],
+            sizes["stegosaurus"]
         );
         assert!(
             default_size > former + 4.0,
             "default cow font {default_size} should be clearly larger than the previous {former}"
         );
+        // The 1200×630 card used a 460px-tall terminal. Tall cows were the
+        // ones stuck near the floor; the square panel should lift daemon
+        // more than the shorter default cow.
+        let landscape = Rect {
+            x: 48.0,
+            y: 118.0,
+            w: 1104.0,
+            h: 460.0,
+        };
+        let landscape_default = layout_speech(
+            BRAND_MESSAGE,
+            &default_cow,
+            speech_content(landscape, "fortune | cowsay"),
+        )
+        .size;
+        let landscape_daemon = layout_speech(
+            BRAND_MESSAGE,
+            &daemon_cow,
+            speech_content(landscape, "fortune | cowsay -f daemon"),
+        )
+        .size;
+        let landscape_stego = layout_speech(
+            BRAND_MESSAGE,
+            &stegosaurus_cow,
+            speech_content(landscape, "fortune | cowsay -f stegosaurus"),
+        )
+        .size;
+        let daemon_gain = sizes["daemon"] / landscape_daemon;
+        let default_gain = default_size / landscape_default;
+        let stego_gain = sizes["stegosaurus"] / landscape_stego;
+        assert!(
+            daemon_gain > default_gain && daemon_gain > stego_gain,
+            "daemon should gain the most from the taller panel: daemon {daemon_gain} ({landscape_daemon} -> {}), default {default_gain} ({landscape_default} -> {default_size}), stegosaurus {stego_gain} ({landscape_stego} -> {})",
+            sizes["daemon"],
+            sizes["stegosaurus"]
+        );
+        assert!(
+            sizes["daemon"] > 20.0,
+            "daemon should clear the old ~11px floor on the square panel, got {}",
+            sizes["daemon"]
+        );
 
-        let stacked = "moo\n".repeat(40);
+        let stacked = "moo\n".repeat(120);
         let block = layout_speech(
             &stacked,
             DEFAULT_COW,

@@ -416,6 +416,7 @@ mod tests {
             "https://api.webfortune.app/og.png?locale=pt&amp;fortune=brasil-3&amp;cow=tux"
         ));
         assert!(rewritten.contains("og:image:width\" content=\"1200\""));
+        assert!(rewritten.contains("og:image:height\" content=\"1200\""));
         assert!(rewritten.contains("summary_large_image"));
     }
 }

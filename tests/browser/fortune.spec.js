@@ -495,7 +495,7 @@ test("loading gate covers only startup and language changes localize SEO", async
   );
   await expect(page.locator('meta[property="og:image:height"]')).toHaveAttribute(
     "content",
-    "630",
+    "1200",
   );
   await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute(
     "content",
@@ -510,7 +510,7 @@ test("loading gate covers only startup and language changes localize SEO", async
   const previewBytes = await preview.body();
   expect(previewBytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
   expect(previewBytes.readUInt32BE(16)).toBe(1200);
-  expect(previewBytes.readUInt32BE(20)).toBe(630);
+  expect(previewBytes.readUInt32BE(20)).toBe(1200);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     "href",
     "https://webfortune.app/",
