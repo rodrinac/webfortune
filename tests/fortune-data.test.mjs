@@ -136,18 +136,21 @@ test("rejects a package whose hash does not match the pin", async () => {
   );
 });
 
-test("keeps a fortune directory and cowsay that are already on PATH", async () => {
-  const bin = mkdtempSync(join(tmpdir(), "cowsay-bin-"));
-  writeFileSync(join(bin, "cowsay"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+test("keeps fortune data that is already configured", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fortune-root-"));
   const result = await ensureFortuneData({
-    root: bin,
-    env: { PATH: bin, FORTUNE_DATA_DIR: "/already/fortunes" },
-    run: () => {
-      throw new Error("toolchain bootstrap should not run");
+    root,
+    env: {
+      PATH: root,
+      FORTUNE_DATA_DIR: "/already/fortunes",
+      COWPATH: "/already/cows:/unused",
+    },
+    fetchImpl: async () => {
+      throw new Error("packages should not be downloaded");
     },
   });
   assert.equal(result.fortuneDir, "/already/fortunes");
-  assert.equal(result.cowsay, join(bin, "cowsay"));
+  assert.equal(result.cowDir, "/already/cows");
 });
 
 test("pins the same Debian packages the Nix shell reads", () => {

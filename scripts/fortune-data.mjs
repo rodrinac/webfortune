@@ -231,15 +231,6 @@ export async function downloadDebianPackage(pkg, fetchImpl = fetch) {
   throw lastError;
 }
 
-function perlCharWidthWorks() {
-  try {
-    execFileSync("perl", ["-MText::CharWidth", "-e", "1"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function aptInstall(packages, run = execFileSync) {
   if (!resolveCommand("apt-get")) {
     throw new Error(
@@ -256,30 +247,18 @@ export function aptInstall(packages, run = execFileSync) {
   apt(["install", "-y", ...packages]);
 }
 
-export function ensurePerlCharWidth(run = execFileSync) {
-  if (perlCharWidthWorks()) return;
-  try {
-    aptInstall(["perl", "libtext-charwidth-perl"], run);
-  } catch (error) {
-    throw new Error(
-      "cowsay needs perl and Text::CharWidth. Run inside `nix develop`, or install perl and libtext-charwidth-perl.",
-      { cause: error },
-    );
-  }
-  if (!perlCharWidthWorks())
-    throw new Error("perl Text::CharWidth is still missing after apt-get install");
-}
-
 export async function ensureFortuneData({
   root,
   env = process.env,
   fetchImpl = fetch,
-  run = execFileSync,
 } = {}) {
-  const cowsay = resolveCommand("cowsay", env);
-  if (env.FORTUNE_DATA_DIR && cowsay)
-    return { env, fortuneDir: env.FORTUNE_DATA_DIR, cowsay };
-  ensurePerlCharWidth(run);
+  if (env.FORTUNE_DATA_DIR && env.COWPATH) {
+    return {
+      env,
+      fortuneDir: env.FORTUNE_DATA_DIR,
+      cowDir: env.COWPATH.split(delimiter)[0],
+    };
+  }
   const packages = loadDebianPackages();
   const dest = join(root, "build/fortune-data");
   const stamp = sriSha256(Buffer.from(JSON.stringify(packages)));
@@ -305,6 +284,6 @@ export async function ensureFortuneData({
       PATH: `${join(dest, "bin")}${delimiter}${env.PATH ?? ""}`,
     },
     fortuneDir: installed.fortuneDir,
-    cowsay: installed.cowsay,
+    cowDir: installed.cowpath,
   };
 }
