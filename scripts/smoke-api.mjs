@@ -32,6 +32,20 @@ async function png(path) {
   return bytes.length;
 }
 
+// RFC 9110 makes Content-Length optional on HEAD. The Cloudflare edge omits
+// it for Node fetch over some protocols even when curl -I shows it. When the
+// header is present on a deterministic route, it must match the GET length.
+function assertContentLengthIfPresent(response, expected, label) {
+  const advertised = response.headers.get("content-length");
+  if (advertised === null) return;
+  assert.match(advertised, /^(?:0|[1-9]\d*)$/, `${label} content-length`);
+  if (expected === null || expected === undefined) {
+    assert.ok(Number(advertised) > 0, `${label} content-length`);
+    return;
+  }
+  assert.equal(advertised, String(expected), `${label} content-length`);
+}
+
 function assertFortuneId(id, label) {
   assert.equal(typeof id, "string", `${label} x-fortune-id`);
   const split = id.lastIndexOf("-");
@@ -75,6 +89,7 @@ const health = await request("/health");
 assert.equal((await health.json()).status, "ok");
 const healthType = health.headers.get("content-type");
 const healthLength = health.headers.get("content-length");
+const healthCache = health.headers.get("cache-control");
 const locales = await (await request("/locales")).json();
 assert.deepEqual(
   locales.map(({ id }) => id),
@@ -164,19 +179,26 @@ await request("/og.png?cow=not-a-real-cow", 404);
 const headHealth = await request("/health", 200, "HEAD");
 assert.equal(headHealth.headers.get("content-type"), healthType);
 assert.match(headHealth.headers.get("content-type") || "", /application\/json/);
-if (healthLength !== null) {
-  assert.equal(headHealth.headers.get("content-length"), healthLength);
+if (healthCache !== null) {
+  assert.equal(headHealth.headers.get("cache-control"), healthCache);
 }
+assertContentLengthIfPresent(headHealth, healthLength, "HEAD /health");
 const headFortune = await request("/", 200, "HEAD");
 assert.match(headFortune.headers.get("content-type") || "", /text\/plain/);
 assert.match(headFortune.headers.get("cache-control") || "", /no-store/);
 assertFortuneId(headFortune.headers.get("x-fortune-id"), "HEAD /");
-const headLength = headFortune.headers.get("content-length");
-assert.ok(headLength !== null && Number(headLength) > 0, "HEAD / content-length");
+if (origin) {
+  assert.match(
+    headFortune.headers.get("access-control-expose-headers") || "",
+    /\bx-fortune-id\b/i,
+    "HEAD CORS exposes x-fortune-id",
+  );
+}
+assertContentLengthIfPresent(headFortune, null, "HEAD /");
 const headImage = await request("/og.png", 200, "HEAD");
 assert.match(headImage.headers.get("content-type") || "", /^image\/png\b/);
 assert.match(headImage.headers.get("cache-control") || "", /max-age=/);
-assert.equal(headImage.headers.get("content-length"), String(brandedLength));
+assertContentLengthIfPresent(headImage, brandedLength, "HEAD /og.png");
 const ranged = await request("/og.png", 200, "GET", { Range: "bytes=0-524287" });
 assert.equal(ranged.headers.get("content-range"), null);
 const rangedBytes = Buffer.from(await ranged.arrayBuffer());
