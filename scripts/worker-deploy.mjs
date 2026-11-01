@@ -104,12 +104,12 @@ export async function deploy({
     PATH: `${join(root, "node_modules/.bin")}${delimiter}${env.PATH ?? ""}`,
     WRANGLER_SEND_METRICS: env.WRANGLER_SEND_METRICS ?? "false",
   };
-  const fortune = await prepareFortune({ root, env: next, run });
+  const fortune = await prepareFortune({ root, env: next });
   next = fortune.env;
   generateAssets({
     fortuneDir: fortune.fortuneDir,
     outDir: join(root, "build/worker-assets"),
-    cowsay: fortune.cowsay,
+    cowDir: fortune.cowDir,
   });
   next = prepareToolchain({ env: next, run });
   run("worker-build", ["--release"], {

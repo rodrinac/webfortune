@@ -15,6 +15,7 @@ import {
   parseCowArt,
   parseCowNames,
   readFortunes,
+  renderCow,
 } from "../scripts/generate-worker-assets.mjs";
 
 // Builds the strfile index the same way strfile(1) does for "%"-delimited files.
@@ -78,6 +79,37 @@ test("parses cow names and strips the empty speech bubble", () => {
   assert.throws(() => parseCowArt(" __\n<  >\n --\n"), /parse cow/);
 });
 
+test("renders cow templates the way cowsay interpolates them", () => {
+  assert.equal(
+    renderCow(`$the_cow = <<"EOC";
+        $thoughts   ^__^
+         $thoughts  ($eyes)\\\\_______
+            (__)\\\\       )\\\\/\\\\
+             $tongue ||----w |
+                ||     ||
+EOC
+`),
+    "        \\   ^__^\n         \\  (oo)\\_______\n            (__)\\       )\\/\\\n                ||----w |\n                ||     ||",
+  );
+  assert.equal(
+    renderCow(`$extra = chop($eyes);\n$eyes .= ($extra x 2);\n$the_cow = <<EOC;\n($eyes)\nEOC\n`),
+    "(ooo)",
+  );
+  assert.equal(
+    renderCow('$the_cow = <<EOC;\nU${eyes}U\\\\.\'\\@\\@`.\nEOC\n'),
+    "UooU\\.'@@`.",
+  );
+  assert.equal(
+    renderCow("$the_cow = <<EOC;\n.==\\ /_\\\n(oo)\\_______\nEOC\n"),
+    ".== /_\n(oo)_______",
+  );
+  assert.equal(
+    renderCow("$the_cow = <<EOC;\n             @9@mmBmmmmmQM$\n             ..MMMM\nEOC\n"),
+    "             0.MMMM",
+  );
+  assert.throws(() => renderCow("not a cow"), /parse cow/);
+});
+
 test("generates locale databases, categories and cows", () => {
   const fortuneDir = mkdtempSync(join(tmpdir(), "fortunes-"));
   const outDir = mkdtempSync(join(tmpdir(), "assets-"));
@@ -87,17 +119,18 @@ test("generates locale databases, categories and cows", () => {
     mkdirSync(join(fortuneDir, locale));
     writeDatabase(join(fortuneDir, locale, "witze"), `${locale}.\n`);
   }
-  const cowsay = join(fortuneDir, "cowsay.mjs");
+  const cowDir = join(fortuneDir, "cows");
+  mkdirSync(cowDir);
   writeFileSync(
-    cowsay,
-    `#!/usr/bin/env node
-process.stdout.write(process.argv[2] === "-l"
-  ? "Cow files in /cows:\\ndefault tux\\n"
-  : " __\\n<  >\\n --\\n  " + process.argv[3] + "\\n");`,
-    { mode: 0o755 },
+    join(cowDir, "default.cow"),
+    "$the_cow = <<EOC;\n  \\$thoughts\n   moo\nEOC\n",
+  );
+  writeFileSync(
+    join(cowDir, "tux.cow"),
+    '$the_cow = <<"EOC";\n  ${thoughts} tux\nEOC\n',
   );
 
-  const manifest = generate({ fortuneDir, outDir, cowsay });
+  const manifest = generate({ fortuneDir, outDir, cowDir });
 
   assert.deepEqual(manifest.locales, [
     {
@@ -127,7 +160,11 @@ process.stdout.write(process.argv[2] === "-l"
     ),
     ["Bug.\n", "Feature.\n"],
   );
-  assert.equal(readFileSync(join(outDir, "cows", "tux.txt"), "utf8"), "  tux");
+  assert.equal(readFileSync(join(outDir, "cows", "tux.txt"), "utf8"), "  \\ tux");
+  assert.equal(
+    readFileSync(join(outDir, "cows", "default.txt"), "utf8"),
+    "  $thoughts\n   moo",
+  );
   assert.deepEqual(
     JSON.parse(readFileSync(join(outDir, "manifest.json"), "utf8")),
     manifest,

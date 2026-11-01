@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -8,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const LOCALES = [
@@ -80,6 +79,70 @@ export function parseCowArt(output) {
   return art;
 }
 
+// cowsay `do`s the .cow file. Asset generation only keeps the figure, so it
+// does not need Perl or the Text::CharWidth module the speech bubble uses.
+export function renderCow(source) {
+  const marker = source.match(
+    /<<(?:"([A-Za-z0-9_]+)"|'([A-Za-z0-9_]+)'|([A-Za-z0-9_]+));?\n/,
+  );
+  const terminator = marker?.[1] ?? marker?.[2] ?? marker?.[3];
+  if (!terminator) throw new Error("Failed to parse cow");
+  const start = marker.index + marker[0].length;
+  const end = source.indexOf(`\n${terminator}`, start);
+  if (end === -1) throw new Error("Failed to parse cow");
+  const body = source.slice(start, end);
+  // A single-quoted heredoc is literal.
+  if (marker[2]) return body;
+
+  let eyes = "oo";
+  // three-eyes.cow: chop one eye character, then repeat that character twice.
+  if (source.includes("$extra = chop($eyes);")) {
+    const extra = eyes.slice(-1);
+    eyes = `${eyes.slice(0, -1)}${extra.repeat(2)}`;
+  }
+  return interpolateCow(body, { eyes, tongue: "  ", thoughts: "\\" });
+}
+
+function interpolateCow(body, vars) {
+  let art = "";
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (character === "\\" && index + 1 < body.length) {
+      art += body[index + 1];
+      index += 1;
+      continue;
+    }
+    if (character === "@") {
+      const arrayName = /^[A-Za-z_][A-Za-z0-9_]*|^[0-9]+/.exec(body.slice(index + 1));
+      if (arrayName) {
+        index += arrayName[0].length;
+        continue;
+      }
+    }
+    if (character === "$") {
+      let cursor = index + 1;
+      while (cursor < body.length && /[ \t\n\r\f]/.test(body[cursor])) cursor += 1;
+      const braced = /^\{([A-Za-z_][A-Za-z0-9_]*)\}/.exec(body.slice(cursor));
+      const plain = /^[A-Za-z_][A-Za-z0-9_]*/.exec(body.slice(cursor));
+      if (braced || plain) {
+        const name = braced?.[1] ?? plain[0];
+        art += vars[name] ?? "";
+        index = cursor + (braced ?? plain)[0].length - 1;
+        continue;
+      }
+      // cowsay reads the empty message before loading the cow, so $. is 0.
+      // calvin.cow interpolates it across the newline.
+      if (body[cursor] === ".") {
+        art += "0";
+        index = cursor;
+        continue;
+      }
+    }
+    art += character;
+  }
+  return art;
+}
+
 function readDatabase(path) {
   return readFortunes(readFileSync(path), readFileSync(`${path}.dat`));
 }
@@ -103,7 +166,7 @@ function localeDatabases(fortuneDir, locale) {
   return [{ name: locale.database, path, category: false }];
 }
 
-export function generate({ fortuneDir, outDir, cowsay = "cowsay" }) {
+export function generate({ fortuneDir, outDir, cowDir }) {
   rmSync(outDir, { recursive: true, force: true });
   const manifest = { locales: [], cows: [] };
 
@@ -134,16 +197,17 @@ export function generate({ fortuneDir, outDir, cowsay = "cowsay" }) {
     });
   }
 
-  const run = (args) =>
-    execFileSync(cowsay, args, {
-      encoding: "utf8",
-      env: { ...process.env, LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
-    });
+  if (!cowDir) throw new Error("cowDir is required");
   mkdirSync(join(outDir, "cows"), { recursive: true });
-  for (const name of parseCowNames(run(["-l"]))) {
+  const names = readdirSync(cowDir)
+    .filter((name) => name.endsWith(".cow"))
+    .map((name) => name.slice(0, -4))
+    .filter((name) => RESOURCE_NAME.test(name))
+    .sort();
+  for (const name of names) {
     writeFileSync(
       join(outDir, "cows", `${name}.txt`),
-      parseCowArt(run(["-f", name, ""])),
+      renderCow(readFileSync(join(cowDir, `${name}.cow`), "utf8")),
     );
     manifest.cows.push(name);
   }
@@ -159,12 +223,15 @@ export function generate({ fortuneDir, outDir, cowsay = "cowsay" }) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const fortuneDir = process.env.FORTUNE_DATA_DIR;
-  if (!fortuneDir) {
-    console.error("FORTUNE_DATA_DIR is required. Run inside `nix develop`.");
+  const cowDir = process.env.COWPATH?.split(delimiter)[0];
+  if (!fortuneDir || !cowDir) {
+    console.error(
+      "FORTUNE_DATA_DIR and COWPATH are required. Run inside `nix develop`.",
+    );
     process.exit(1);
   }
   const outDir = resolve(process.argv[2] || "build/worker-assets");
-  const manifest = generate({ fortuneDir, outDir });
+  const manifest = generate({ fortuneDir, outDir, cowDir });
   const total = manifest.locales.map(
     ({ id, databases }) =>
       `${id}=${Object.values(databases).reduce((sum, count) => sum + count, 0)}`,

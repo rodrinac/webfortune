@@ -51,7 +51,7 @@ test("compiles the worker before wrangler deploy", async () => {
     prepareFortune: async ({ env }) => ({
       env,
       fortuneDir: "/fortunes",
-      cowsay: "/usr/bin/cowsay",
+      cowDir: "/cows",
     }),
     prepareToolchain: ({ env }) => env,
     generateAssets: (options) => generated.push(options),
@@ -61,7 +61,7 @@ test("compiles the worker before wrangler deploy", async () => {
     {
       fortuneDir: "/fortunes",
       outDir: "/repo/build/worker-assets",
-      cowsay: "/usr/bin/cowsay",
+      cowDir: "/cows",
     },
   ]);
   assert.equal(calls[0].command, "worker-build");
