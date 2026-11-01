@@ -49,13 +49,25 @@ jobs:
       - name: Smoke-test the API
         run: |
           set -euo pipefail
-          # Workers Builds deploys the Worker for the release commit. Pages waits
-          # until that API answers.
-          for attempt in $(seq 1 30); do
-            if curl -fsS "$API_URL/health"; then break; fi
-            sleep 10
-          done
-          curl -fsS "$API_URL/health"
+          # Workers Builds deploys the release Worker on its own. The Worker it
+          # replaces also answers /health with {"status":"ok"}, so wait until
+          # this release's version is live before smoke tests.
+          version="${GITHUB_REF_NAME#v}"
+          crate_version="$(node -e '
+            const fs = require("node:fs");
+            const match = fs.readFileSync("worker/Cargo.toml", "utf8").match(/^version = "([^"]+)"/m);
+            if (!match) {
+              console.error("worker/Cargo.toml has no package version");
+              process.exit(1);
+            }
+            process.stdout.write(match[1]);
+          ')"
+          if [[ "${crate_version}" != "${version}" ]]; then
+            echo "worker/Cargo.toml version ${crate_version} does not match release ${version}." >&2
+            echo "GET /health reports that crate version. The version bump writes the same value to package.json and worker/Cargo.toml." >&2
+            exit 1
+          fi
+          EXPECTED_VERSION="${version}" node scripts/wait-for-release.mjs
           CORS_ORIGIN=https://webfortune.app node scripts/smoke-api.mjs
 
   build-pages:

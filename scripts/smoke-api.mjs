@@ -59,9 +59,10 @@ function assertFortuneId(id, label) {
 }
 
 // worker/wrangler.jsonc allows 50 requests per 10 seconds per IP. CI curls
-// /health once before this script, and the deploy workflows curl it twice,
-// all inside that window. Stay under the remainder so those probes cannot
-// turn a later check into a 429.
+// /health once before this script. The manual deploy workflow curls it twice
+// in that window. The tag workflow adds one fetch when /health reports the
+// release version. Those callers add at most two probes. Stay under the
+// remainder so those probes cannot turn a later check into a 429.
 const SMOKE_REQUEST_BUDGET = 46;
 let requests = 0;
 

@@ -78,6 +78,41 @@ struct FortuneQuery<'a> {
 const TEXT: &str = "text/plain; charset=utf-8";
 const JSON: &str = "application/json; charset=utf-8";
 
+/// Release the Worker was compiled from. `scripts/version-bump.mjs` writes this
+/// same value to `worker/Cargo.toml` and `package.json`. Deploy production waits
+/// until `/health` reports it: the previous Worker also answers with status ok.
+const RELEASE_VERSION: &str = env!("CARGO_PKG_VERSION");
+const HEALTH_BODY: &str = concat!(
+    "{\"status\":\"ok\",\"version\":\"",
+    env!("CARGO_PKG_VERSION"),
+    "\"}\n"
+);
+
+const fn is_release_version(version: &str) -> bool {
+    let bytes = version.as_bytes();
+    let mut index = 0;
+    let mut dots = 0;
+    let mut digits = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'0'..=b'9' => digits += 1,
+            b'.' if digits > 0 => {
+                dots += 1;
+                digits = 0;
+            }
+            _ => return false,
+        }
+        index += 1;
+    }
+    dots == 2 && digits > 0
+}
+
+const _: () = assert!(is_release_version(RELEASE_VERSION));
+
+fn health_ok() -> Reply {
+    reply(200, JSON, HEALTH_BODY)
+}
+
 pub fn reply(status: u16, content_type: &str, body: impl Into<String>) -> Reply {
     Reply {
         status,
@@ -302,9 +337,7 @@ pub fn handle(
     }
 
     let reply = match path {
-        "/health" if !manifest.locales.is_empty() && !manifest.cows.is_empty() => {
-            reply(200, JSON, "{\"status\":\"ok\"}\n")
-        }
+        "/health" if !manifest.locales.is_empty() && !manifest.cows.is_empty() => health_ok(),
         "/health" => text(503, "Fortune service unavailable.\n"),
         "/locales" => json(
             &manifest
@@ -613,7 +646,38 @@ mod tests {
             "[\"art\",\"zippy\"]\n"
         );
         assert_eq!(reply_of(get("/categories", Some("locale=pt"))).body, "[]\n");
-        assert_eq!(reply_of(get("/health", None)).status, 200);
+    }
+
+    #[test]
+    fn health_reports_ok_and_the_release_version() {
+        assert!(is_release_version(RELEASE_VERSION));
+        assert!(!is_release_version("v1.5.0"));
+        assert!(!is_release_version("1.5"));
+        assert!(!is_release_version("1.5.0-beta"));
+        let package: serde_json::Value =
+            serde_json::from_str(include_str!("../../package.json")).unwrap();
+        assert_eq!(package["version"].as_str(), Some(RELEASE_VERSION));
+
+        let reply = reply_of(get("/health", None));
+        assert_eq!(reply.status, 200);
+        assert_eq!(reply.body, HEALTH_BODY);
+        assert!(reply.headers.contains(&("content-type", JSON.to_string())));
+        assert!(reply
+            .headers
+            .contains(&("cache-control", "no-store".to_string())));
+    }
+
+    #[test]
+    fn health_without_fortune_data_stays_unavailable() {
+        for manifest_json in [
+            r#"{"locales":[],"cows":["default"]}"#,
+            r#"{"locales":[{"id":"en","name":"English","categories":[],"databases":{}}],"cows":[]}"#,
+        ] {
+            let manifest: Manifest = serde_json::from_str(manifest_json).unwrap();
+            let reply = reply_of(handle("GET", "/health", None, &manifest, 0.0));
+            assert_eq!(reply.status, 503, "{manifest_json}");
+            assert_eq!(reply.body, "Fortune service unavailable.\n");
+        }
     }
 
     #[test]
