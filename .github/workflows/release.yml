@@ -49,14 +49,21 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # GitHub ignores workflow runs for git events created by GITHUB_TOKEN.
+      # A tag created with that token would not start Deploy production.
+      # VERSION_BUMP_TOKEN is a normal user token, so this tag push does.
       - name: Create release tag
         if: steps.existing-tag.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.VERSION_BUMP_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "VERSION_BUMP_TOKEN is required to create ${TAG} and start the deploy." >&2
+            exit 1
+          fi
           gh api "repos/${GITHUB_REPOSITORY}/git/refs" --method POST \
             -f "ref=refs/tags/${TAG}" \
             -f "sha=${SHA}"
