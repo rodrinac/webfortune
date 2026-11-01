@@ -12,16 +12,12 @@ concurrency:
 permissions: {}
 
 jobs:
-  worker:
+  smoke:
     runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
-    outputs:
-      api_url: ${{ steps.api.outputs.url }}
     env:
       API_URL: https://api.webfortune.app
-      WRANGLER_SEND_METRICS: "false"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -29,26 +25,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.rustup
-          key: worker-build-0.8.7-${{ runner.os }}
-      - name: Deploy Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          npm ci --no-audit --no-fund
-          # Same command Workers Builds runs, with no separate build step.
-          npm run worker:deploy
-      - name: Smoke-test deployed Worker
-        id: api
+      - name: Smoke-test the API
         run: |
           set -euo pipefail
           for attempt in $(seq 1 30); do
@@ -56,11 +33,10 @@ jobs:
             sleep 10
           done
           curl -fsS "$API_URL/health"
-          CORS_ORIGIN=https://webfortune.app npm run smoke
-          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          CORS_ORIGIN=https://webfortune.app node scripts/smoke-api.mjs
 
   build-pages:
-    needs: worker
+    needs: smoke
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,7 +53,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
         env:
-          VITE_API_URL: ${{ needs.worker.outputs.api_url }}
+          VITE_API_URL: https://api.webfortune.app
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

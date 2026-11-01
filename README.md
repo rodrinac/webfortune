@@ -50,7 +50,7 @@ GET and HEAD are supported. The Worker handles browser OPTIONS and CORS, and exp
 
 ## Deployment
 
-See [the deployment runbook](docs/deployment.md). Cloudflare Workers Builds runs `npm run worker:deploy` for each push to `main`, with no separate build command. The release workflow runs that same command, smoke-tests the public API/CORS, builds the UI with that API URL, and publishes GitHub Pages. Worker failure blocks the Pages deployment. Deployments are serialized.
+See [the deployment runbook](docs/deployment.md). Cloudflare Workers Builds runs `npm run worker:deploy` for each push to `main`, with no separate build command. The release workflow smoke-tests the public API/CORS, builds the UI with that API URL, and publishes GitHub Pages. A failed smoke test blocks the Pages deployment. Deployments are serialized.
 
 For a standalone production UI build:
 
