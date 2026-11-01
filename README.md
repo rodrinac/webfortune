@@ -60,7 +60,7 @@ VITE_API_URL=https://api.webfortune.app npm run build
 
 Builds fail without a public HTTPS API URL. Assets use relative paths so the site works at both `webfortune.app` and the GitHub Pages project path. `VITE_API_URL` is public configuration, not a secret.
 
-`VITE_GA_MEASUREMENT_ID` is optional. Set it to the GA4 measurement ID (`G-…`) to include the consent banner and Google tag. The tag loads only after a visitor allows it. Leave it unset for local development.
+`VITE_GA_MEASUREMENT_ID` is optional. Set it to the GA4 measurement ID (`G-…`) to include the Google tag and consent banner. The tag is on the page immediately, and analytics storage stays denied until a visitor allows it. Leave it unset for local development.
 
 ## Verification
 

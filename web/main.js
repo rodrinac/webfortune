@@ -861,7 +861,11 @@ function prepareAnalytics() {
   $("analytics-preferences").addEventListener("click", () =>
     showConsentBanner({ focus: true }),
   );
-  if (readConsent(localStorage) === "granted") installGoogleAnalytics(id);
+  installGoogleAnalytics(
+    id,
+    undefined,
+    readConsent(localStorage) === "granted" ? "granted" : "denied",
+  );
 }
 
 function revealAnalyticsConsent() {
