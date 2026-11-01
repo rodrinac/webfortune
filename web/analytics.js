@@ -72,13 +72,38 @@ export function eventParams(params) {
   return clean;
 }
 
-// Consent is queued before the script request so Google never runs without it.
-export function installGoogleAnalytics(id, env = browserEnv()) {
+function alreadyConfigured(view, measurement) {
+  return (view.dataLayer || []).some(
+    (args) => args && args[0] === "config" && args[1] === measurement,
+  );
+}
+
+// The tag is on the page immediately so GA4 can see it. Storage stays denied
+// until the visitor allows it, and consent is queued before the script request.
+export function googleTagSnippet(id) {
+  const measurement = measurementId(id);
+  if (!measurement) return "";
+  return `<script>
+window.dataLayer=window.dataLayer||[];
+function gtag(){dataLayer.push(arguments);}
+gtag("js",new Date());
+var webfortuneAnalytics="";
+try{webfortuneAnalytics=localStorage.getItem(${JSON.stringify(CONSENT_KEY)})||"";}catch(e){}
+gtag("consent","default",webfortuneAnalytics==="granted"?${JSON.stringify(grantedConsent)}:${JSON.stringify(deniedConsent)});
+gtag("config",${JSON.stringify(measurement)},{page_location:location.origin+location.pathname});
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=${measurement}"></script>`;
+}
+
+export function installGoogleAnalytics(id, env = browserEnv(), consent = "denied") {
   const measurement = measurementId(id);
   if (!measurement) return false;
   const view = env.window;
   const doc = env.document;
-  if (view.__webfortuneGa === measurement) return true;
+  if (view.__webfortuneGa === measurement || alreadyConfigured(view, measurement)) {
+    view.__webfortuneGa = measurement;
+    return true;
+  }
   view.dataLayer = view.dataLayer || [];
   if (typeof view.gtag !== "function") {
     view.gtag = function gtag() {
@@ -86,7 +111,7 @@ export function installGoogleAnalytics(id, env = browserEnv()) {
     };
   }
   view.gtag("js", new Date());
-  view.gtag("consent", "default", grantedConsent);
+  view.gtag("consent", "default", consent === "granted" ? grantedConsent : deniedConsent);
   // The address bar carries the fortune id. Keep that id out of Google.
   const loc = doc.location;
   const config = {};
@@ -103,8 +128,11 @@ export function installGoogleAnalytics(id, env = browserEnv()) {
 export function applyAnalyticsChoice(choice, id, env = browserEnv()) {
   writeConsent(choice, env.storage);
   if (choice === "granted") {
-    const loaded = env.window.__webfortuneGa === measurementId(id);
-    installGoogleAnalytics(id, env);
+    const measurement = measurementId(id);
+    const loaded =
+      env.window.__webfortuneGa === measurement ||
+      alreadyConfigured(env.window, measurement);
+    installGoogleAnalytics(id, env, "granted");
     if (loaded) env.window.gtag("consent", "update", grantedConsent);
     return;
   }

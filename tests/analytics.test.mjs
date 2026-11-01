@@ -6,6 +6,7 @@ import {
   applyAnalyticsChoice,
   clearAnalyticsCookies,
   eventParams,
+  googleTagSnippet,
   installGoogleAnalytics,
   measurementId,
   readConsent,
@@ -92,7 +93,17 @@ test("drops fortune text and oversized values from event parameters", () => {
   );
 });
 
-test("loads the Google tag only after consent and only once", () => {
+test("puts the Google tag in the page with storage denied until allow", () => {
+  const snippet = googleTagSnippet("G-AB12CD34");
+  assert.match(snippet, /src="https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=G-AB12CD34"/);
+  assert.match(snippet, /webfortune-analytics/);
+  assert.match(snippet, /analytics_storage":"denied"/);
+  assert.equal(snippet.includes("?fortune"), false);
+  assert.equal(googleTagSnippet(""), "");
+  assert.throws(() => googleTagSnippet("UA-123"), /G-XXXXXXXX/);
+});
+
+test("loads the Google tag on startup and only once", () => {
   const { env, scripts, view } = browser();
   assert.equal(installGoogleAnalytics("", env), false);
   assert.equal(scripts.length, 0);
@@ -106,11 +117,26 @@ test("loads the Google tag only after consent and only once", () => {
   );
   const commands = [...view.dataLayer].map((args) => args[0]);
   assert.deepEqual(commands, ["js", "consent", "config"]);
-  assert.equal(view.dataLayer[1][2].analytics_storage, "granted");
+  assert.equal(view.dataLayer[1][2].analytics_storage, "denied");
   assert.equal(view.dataLayer[1][2].ad_storage, "denied");
   assert.equal(view.dataLayer[1][2].ad_user_data, "denied");
   assert.equal(view.dataLayer[1][2].ad_personalization, "denied");
   assert.equal(view.dataLayer[2][1], "G-AB12CD34");
+});
+
+test("does not add a second tag when the page already configured it", () => {
+  const { env, scripts, view } = browser();
+  view.dataLayer = [];
+  view.gtag = function gtag() {
+    view.dataLayer.push(arguments);
+  };
+  view.gtag("config", "G-AB12CD34", {});
+  assert.equal(installGoogleAnalytics("G-AB12CD34", env), true);
+  assert.equal(scripts.length, 0);
+  applyAnalyticsChoice("granted", "G-AB12CD34", env);
+  const update = [...view.dataLayer].find((args) => args[1] === "update");
+  assert.equal(update[2].analytics_storage, "granted");
+  assert.equal(scripts.length, 0);
 });
 
 test("keeps fortune ids out of the URL sent to Google", () => {
