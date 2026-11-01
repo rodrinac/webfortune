@@ -8,7 +8,7 @@ The static UI renders the returned text as cowsay-style ASCII art in the browser
 
 ## GitHub settings
 
-Enable GitHub Pages with **GitHub Actions** as the source. The `github-pages` environment should allow only `main`. Workers Builds authenticates with the API token created when the Git repository is connected. GitHub Actions does not deploy the Worker.
+Enable GitHub Pages with **GitHub Actions** as the source. The `github-pages` environment should allow the `main` branch and tags matching `v*.*.*`. A policy that allows only `main` rejects the release tag before Pages is published. Workers Builds authenticates with the API token created when the Git repository is connected. GitHub Actions does not deploy the Worker.
 
 Verify `webfortune.app` in the owner's GitHub Pages account settings and keep its `_github-pages-challenge-rodrinac` TXT record. Configure the repository Pages custom domain as `webfortune.app`. At the registrar, point the apex to GitHub Pages using its four documented A records and point `www` directly to `rodrinac.github.io` with a CNAME. Do not use wildcard records. Enable HTTPS after GitHub finishes provisioning the certificate.
 
