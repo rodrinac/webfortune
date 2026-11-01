@@ -40,7 +40,7 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
 1. **Push to `main`**: Triggers `.github/workflows/version-bump.yml`.
 2. **Version Bump PR**: If release-worthy commits are found, a pull request is automatically opened from branch `chore/version-bump` updating `package.json`, `package-lock.json`, `worker/Cargo.toml`, and `worker/Cargo.lock`.
 3. **Release**: Merging the `chore/version-bump` PR triggers `.github/workflows/release.yml`, creating tag `vX.Y.Z` and a GitHub Release.
-4. **Deployment**: A push to `main` triggers Cloudflare Workers Builds, which runs `npm run worker:deploy` with no separate build command. Successful release completion triggers `.github/workflows/deploy.yml`, which smoke-tests the API and publishes GitHub Pages. GitHub Actions does not deploy the Worker.
+4. **Deployment**: The release tag push triggers `.github/workflows/deploy.yml`, which smoke-tests the API and publishes GitHub Pages. GitHub Actions does not deploy the Worker. Workers Builds runs `npm run worker:deploy` for the release commit on `main` (the version-bump paths), not for every push.
 
 ## Project Structure & Commands
 

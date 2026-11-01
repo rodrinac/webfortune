@@ -1,7 +1,6 @@
 name: Deploy production (manual)
 
-# Separate from deploy.yml so workflow_dispatch (default-branch cache write)
-# never shares a workflow with checkout of a workflow_run-derived SHA.
+# Ad-hoc Pages redeploy of the selected branch tip. Release tags use deploy.yml.
 on:
   workflow_dispatch:
 

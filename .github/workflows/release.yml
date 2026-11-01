@@ -49,14 +49,20 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # GITHUB_TOKEN ref creation does not start other workflows. This token
+      # is what pushes the version bump, so the tag push starts Deploy production.
       - name: Create release tag
         if: steps.existing-tag.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.VERSION_BUMP_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "VERSION_BUMP_TOKEN is required to create ${TAG} and start the deploy." >&2
+            exit 1
+          fi
           gh api "repos/${GITHUB_REPOSITORY}/git/refs" --method POST \
             -f "ref=refs/tags/${TAG}" \
             -f "sha=${SHA}"
