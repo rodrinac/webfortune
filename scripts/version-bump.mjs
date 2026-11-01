@@ -26,7 +26,6 @@ const WORKER_CARGO_LOCK_PATH = path.join(REPO_ROOT, "worker", "Cargo.lock");
 
 const CONVENTIONAL_COMMIT_PATTERN = /^(\w+)(\([^)]*\))?(!)?:\s*(.+)$/;
 const BREAKING_CHANGE_PATTERN = /^BREAKING CHANGE:\s*/m;
-const RELEASE_COMMIT_PATTERN = /^chore\(release\): v\d+\.\d+\.\d+$/;
 
 const run = (command, args) =>
   execFileSync(command, args, { cwd: REPO_ROOT, encoding: "utf8" }).trim();
@@ -56,10 +55,7 @@ const getCommitsSince = (tag) => {
 };
 
 export function isAutomatedReleaseCommit(message) {
-  const subject = message.split("\n")[0].trim();
-  return (
-    message.includes("[skip version-bump]") || RELEASE_COMMIT_PATTERN.test(subject)
-  );
+  return message.split("\n")[0].trim().startsWith("chore(release): v");
 }
 
 export function classifyBump(commitMessages) {
