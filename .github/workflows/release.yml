@@ -49,8 +49,9 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # GITHUB_TOKEN ref creation does not start other workflows. This token
-      # is what pushes the version bump, so the tag push starts Deploy production.
+      # GitHub ignores workflow runs for git events created by GITHUB_TOKEN.
+      # A tag created with that token would not start Deploy production.
+      # VERSION_BUMP_TOKEN is a normal user token, so this tag push does.
       - name: Create release tag
         if: steps.existing-tag.outputs.exists == 'false'
         env:
