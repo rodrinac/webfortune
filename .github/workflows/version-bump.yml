@@ -70,8 +70,8 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
           set -euo pipefail
-          git config user.name "Rodrigo"
-          git config user.email "jose.rs.inacio@gmail.com"
+          git config user.name "Rodrigo Inácio"
+          git config user.email "rodrigo.si.inacio@gmail.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
           branch="chore/version-bump"
