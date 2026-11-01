@@ -31,32 +31,10 @@
 
       # Same Debian bookworm packages used to generate Worker assets, so local
       # and production fortune/cow data stay aligned on every platform.
-      debianPackages = [
-        {
-          path = "f/fortune-mod/fortunes_1.99.1-7.3_all.deb";
-          hash = "sha256-QdBVHcD/Uvh1ouzvfDnaL2cqtGjDfhcBGffgJFqdY8U=";
-        }
-        {
-          path = "f/fortune-mod/fortunes-min_1.99.1-7.3_all.deb";
-          hash = "sha256-nu1bRQZOQRM9rglnzzoXWIrXfAFPzHvxUn+j6kjkTQc=";
-        }
-        {
-          path = "f/fortunes-de/fortunes-de_0.35-1_all.deb";
-          hash = "sha256-A/56eRKTW9PU4C44157zKiiQl/hxjUSIxAlZWrzgZ6A=";
-        }
-        {
-          path = "f/fortunes-es/fortunes-es_1.36_all.deb";
-          hash = "sha256-VGNu3BpDhAk7aNFmbH5wLOQtH8yLWrQC2WRsMo3MqJk=";
-        }
-        {
-          path = "f/fortunes-br/fortunes-br_20220821_all.deb";
-          hash = "sha256-ChgbX99PnYPdUZxKUK8uaNiMhdJ6sy9mXHLl/GczGkw=";
-        }
-        {
-          path = "c/cowsay/cowsay_3.03+dfsg2-8_all.deb";
-          hash = "sha256-Wxb5D/l4caoPRCCHq8GHiUDQDjEPdBkLqFSgl1RSBL8=";
-        }
-      ];
+      # Workers Builds reads this file too; it has no Nix.
+      debianPackages = builtins.fromJSON (
+        builtins.readFile ./scripts/debian-fortune-packages.json
+      );
 
       mkFortuneData =
         pkgs:

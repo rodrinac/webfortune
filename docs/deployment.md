@@ -21,7 +21,9 @@ Verify `webfortune.app` in the owner's GitHub Pages account settings and keep it
 
 `api.webfortune.app` is attached as a Worker custom domain via `worker/wrangler.jsonc` (`custom_domain: true`). DNS for that hostname is managed in Cloudflare.
 
-The Release-triggered Deploy workflow pins Worker and Pages to the verified release commit. Pages builds with `VITE_API_URL=https://api.webfortune.app` from the successful Worker job. Manual redeploys use the separate **Deploy production (manual)** workflow, which checks out the selected branch tip only (never a `workflow_run` SHA).
+Workers Builds deploys the Worker for every push to `main`. In the Worker build settings, leave the build command empty, set the deploy command to `npm run worker:deploy`, and leave the root directory as `/`. That script generates fortune assets, compiles the Wasm bundle, and runs `wrangler deploy`. Workers Builds does not run the custom build command in `worker/wrangler.jsonc`, and its image has no Rust or fortune data, so the script installs them when `nix develop` has not already put them on `PATH`.
+
+The release workflow checks out the verified release commit and runs the same `npm run worker:deploy`. Pages then builds with `VITE_API_URL=https://api.webfortune.app` from that successful Worker job. A push to `main` can publish the Worker from Workers Builds before the release workflow publishes the matching UI. Manual redeploys use the separate **Deploy production (manual)** workflow, which checks out the selected branch tip only (never a `workflow_run` SHA) and runs the same deploy command.
 
 ## Verification and recovery
 
