@@ -5,9 +5,16 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
-if [[ -n "$upstream" ]]; then
-  changed="$(git diff --name-only "$upstream"...HEAD 2>/dev/null || true)"
+base="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [[ -z "$base" ]]; then
+  if git rev-parse --verify -q origin/main >/dev/null; then
+    base="origin/main"
+  elif git rev-parse --verify -q main >/dev/null; then
+    base="main"
+  fi
+fi
+if [[ -n "$base" ]]; then
+  changed="$(git diff --name-only "$base"...HEAD 2>/dev/null || true)"
 else
   changed=""
 fi
