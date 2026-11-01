@@ -52,51 +52,35 @@ jobs:
           echo "Release ${tag} is not published for ${RELEASE_SHA}; skipping deployment"
           echo "deploy=false" >> "$GITHUB_OUTPUT"
 
-  worker:
+  smoke:
     needs: release-gate
     if: needs.release-gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
-    outputs:
-      api_url: ${{ steps.api.outputs.url }}
     env:
       API_URL: https://api.webfortune.app
-      WRANGLER_SEND_METRICS: "false"
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-gate.outputs.sha }}
           persist-credentials: false
-      - uses: cachix/install-nix-action@v31
-      - name: Check and deploy Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          nix develop --command bash -euo pipefail -c '
-            npm ci --no-audit --no-fund
-            npm test
-            npm run generate:assets
-            (cd worker && cargo test --locked)
-            npm run worker:deploy
-          '
-      - name: Smoke-test deployed Worker
-        id: api
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Smoke-test the API
         run: |
           set -euo pipefail
-          # The first deploy also provisions the custom domain certificate.
+          # Workers Builds deploys the Worker. Pages waits until the live API answers.
           for attempt in $(seq 1 30); do
             if curl -fsS "$API_URL/health"; then break; fi
             sleep 10
           done
           curl -fsS "$API_URL/health"
-          nix develop --command bash -euo pipefail -c 'CORS_ORIGIN=https://webfortune.app npm run smoke'
-          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          CORS_ORIGIN=https://webfortune.app node scripts/smoke-api.mjs
 
   build-pages:
-    needs: [release-gate, worker]
+    needs: [release-gate, smoke]
     if: needs.release-gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -105,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Same verified pin as the Worker job so Pages cannot ship a newer main tip.
+          # Same verified pin as the smoke job so Pages cannot ship a newer main tip.
           ref: ${{ needs.release-gate.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -116,7 +100,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
         env:
-          VITE_API_URL: ${{ needs.worker.outputs.api_url }}
+          VITE_API_URL: https://api.webfortune.app
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

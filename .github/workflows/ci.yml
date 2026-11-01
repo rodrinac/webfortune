@@ -40,15 +40,17 @@ jobs:
         run: |
           nix develop --command bash -euo pipefail -c '
             npm ci --no-audit --no-fund
-            npm run generate:assets
             cd worker
             cargo fmt --check
             cargo clippy --locked --all-targets -- -D warnings
             cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
             cargo test --locked
-            npx wrangler deploy --dry-run --outdir ../build/worker-dry-run
+            cd ..
+            npm run worker:deploy -- --dry-run --outdir ../build/worker-dry-run
           '
       - name: Smoke-test the Worker locally
+        env:
+          WEBFORTUNE_SKIP_WORKER_BUILD: "1"
         run: |
           nix develop --command bash -euo pipefail -c '
             npm run worker:dev -- --port 8787 --ip 127.0.0.1 > wrangler-dev.log 2>&1 &
@@ -59,3 +61,29 @@ jobs:
             done
             API_URL=http://127.0.0.1:8787 CORS_ORIGIN=https://webfortune.app npm run smoke
           '
+
+  # Workers Builds has no Nix. This job runs the deploy command the same way
+  # that image will: Node on Ubuntu, fortune packages downloaded, Rust installed
+  # by the script. `--dry-run` stops before uploading.
+  worker-deploy-command:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]') }}
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup
+          key: worker-build-0.8.7-${{ runner.os }}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run worker:deploy -- --dry-run --outdir ../build/worker-dry-run

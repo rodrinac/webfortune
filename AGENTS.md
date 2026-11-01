@@ -40,7 +40,7 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
 1. **Push to `main`**: Triggers `.github/workflows/version-bump.yml`.
 2. **Version Bump PR**: If release-worthy commits are found, a pull request is automatically opened from branch `chore/version-bump` updating `package.json`, `package-lock.json`, `worker/Cargo.toml`, and `worker/Cargo.lock`.
 3. **Release**: Merging the `chore/version-bump` PR triggers `.github/workflows/release.yml`, creating tag `vX.Y.Z` and a GitHub Release.
-4. **Deployment**: Successful release completion triggers `.github/workflows/deploy.yml` to deploy the Cloudflare Worker and GitHub Pages site.
+4. **Deployment**: A push to `main` triggers Cloudflare Workers Builds, which runs `npm run worker:deploy` with no separate build command. Successful release completion triggers `.github/workflows/deploy.yml`, which smoke-tests the API and publishes GitHub Pages. GitHub Actions does not deploy the Worker.
 
 ## Project Structure & Commands
 
@@ -48,7 +48,7 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
   - Test: `cd worker && cargo test --locked`
   - Lint: `cd worker && cargo clippy --locked --all-targets -- -D warnings`
   - Format: `cd worker && cargo fmt --check`
-  - Deploy: `npm run generate:assets && npm run worker:deploy`
+  - Deploy: `npm run worker:deploy`
 - **Frontend**: Vite (`web/`) with Vanilla JS & CSS.
   - Test: `npm test`
   - E2E Test: `npm run test:e2e`

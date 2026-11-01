@@ -12,7 +12,7 @@
     "smoke": "node scripts/smoke-api.mjs",
     "generate:assets": "node scripts/generate-worker-assets.mjs",
     "worker:dev": "cd worker && wrangler dev",
-    "worker:deploy": "cd worker && wrangler deploy"
+    "worker:deploy": "node scripts/worker-deploy.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
