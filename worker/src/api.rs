@@ -39,7 +39,7 @@ pub enum Action {
         database: String,
         index: usize,
     },
-    /// Render a 1200×630 PNG. `fortune` is absent for the branded default card.
+    /// Render a 1200×1200 PNG. `fortune` is absent for the branded default card.
     OgImage(OgImage),
 }
 

@@ -32,7 +32,7 @@ For failures inspect the workflow logs and Cloudflare Workers observability for 
 
 ## Per-fortune link previews
 
-Every page already advertises `https://webfortune.app/og.png`, a 1200×630 branded card. That static preview works with no Cloudflare change. Crawlers do not run the page's JavaScript, and GitHub Pages serves one `index.html` for every query string, so a permalink such as `/?locale=pt&cow=daemon&fortune=brasil-1730` cannot describe that fortune until something in front of Pages rewrites the HTML.
+Every page already advertises `https://webfortune.app/og.png`, a 1200×1200 branded card. That static preview works with no Cloudflare change. Crawlers do not run the page's JavaScript, and GitHub Pages serves one `index.html` for every query string, so a permalink such as `/?locale=pt&cow=daemon&fortune=brasil-1730` cannot describe that fortune until something in front of Pages rewrites the HTML.
 
 The Worker can do that rewrite, and it can paint the fortune at `GET /og.png`. Neither requires a DNS or workflow change. The rewrite stays off because `worker/wrangler.jsonc` does not route `webfortune.app` at the Worker. `wrangler deploy` replaces routes from that file, so a route added only in the dashboard disappears on the next deploy.
 

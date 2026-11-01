@@ -12,7 +12,7 @@ function assertPng(bytes, label) {
     `${label} signature`,
   );
   assert.equal(bytes.readUInt32BE(16), 1200, `${label} width`);
-  assert.equal(bytes.readUInt32BE(20), 630, `${label} height`);
+  assert.equal(bytes.readUInt32BE(20), 1200, `${label} height`);
   assert.ok(bytes.length < 300 * 1024, `${label} is ${bytes.length} bytes`);
   assert.ok(bytes.length > 1024, `${label} is unexpectedly small`);
 }

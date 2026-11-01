@@ -19,7 +19,7 @@ function metaContent(html, attribute, name) {
   return content[2];
 }
 
-test("the production build ships an absolute 1200x630 Open Graph image", () => {
+test("the production build ships an absolute 1200x1200 Open Graph image", () => {
   const outDir = join(root, "build/og-preview-dist");
   execFileSync(
     "npx",
@@ -39,7 +39,7 @@ test("the production build ships an absolute 1200x630 Open Graph image", () => {
   assert.equal(metaContent(html, "property", "og:image:secure_url"), IMAGE);
   assert.equal(metaContent(html, "property", "og:image:type"), "image/png");
   assert.equal(metaContent(html, "property", "og:image:width"), "1200");
-  assert.equal(metaContent(html, "property", "og:image:height"), "630");
+  assert.equal(metaContent(html, "property", "og:image:height"), "1200");
   assert.match(metaContent(html, "property", "og:image:alt"), /webfortune/);
   assert.equal(metaContent(html, "name", "twitter:card"), "summary_large_image");
   assert.equal(metaContent(html, "name", "twitter:image"), IMAGE);
@@ -55,7 +55,7 @@ test("the production build ships an absolute 1200x630 Open Graph image", () => {
   assert.deepEqual(image, source);
   assert.equal(image.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   assert.equal(image.readUInt32BE(16), 1200);
-  assert.equal(image.readUInt32BE(20), 630);
+  assert.equal(image.readUInt32BE(20), 1200);
   assert.ok(image.length < 300 * 1024, `og.png is ${image.length} bytes`);
   assert.ok(image.length > 5 * 1024, "og.png is unexpectedly small");
 });
