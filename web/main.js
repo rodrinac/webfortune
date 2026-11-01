@@ -9,6 +9,13 @@ import {
 } from "lucide";
 import { cowsay, DEFAULT_COW } from "./cowsay.js";
 import {
+  applyAnalyticsChoice,
+  installGoogleAnalytics,
+  measurementId,
+  readConsent,
+  track,
+} from "./analytics.js";
+import {
   allowedParam,
   fortuneParam,
   isFortuneId,
@@ -82,6 +89,11 @@ const translations = {
     unavailable: "Everything (categories unavailable)",
     clipboard:
       "Clipboard unavailable. You can select and copy the fortune directly.",
+    analyticsConsent:
+      "Google Analytics can count visits and what you try. No ads.",
+    analyticsAllow: "Allow",
+    analyticsDecline: "No thanks",
+    analyticsPreferences: "Analytics",
   },
   de: {
     name: "Deutsch",
@@ -126,6 +138,11 @@ const translations = {
     fallback: "Auch eine weise Kuh braucht manchmal einen zweiten Versuch.",
     unavailable: "Alles (Kategorien nicht verfügbar)",
     clipboard: "Zwischenablage nicht verfügbar. Kopiere den Text direkt.",
+    analyticsConsent:
+      "Google Analytics kann Besuche und deine Auswahl zählen. Keine Werbung.",
+    analyticsAllow: "Erlauben",
+    analyticsDecline: "Nein danke",
+    analyticsPreferences: "Analysen",
   },
   es: {
     name: "Español",
@@ -170,6 +187,11 @@ const translations = {
     fallback: "Hasta una vaca sabia necesita un segundo intento.",
     unavailable: "Todo (categorías no disponibles)",
     clipboard: "Portapapeles no disponible. Copia la fortuna directamente.",
+    analyticsConsent:
+      "Google Analytics puede contar las visitas y lo que pruebas. Sin anuncios.",
+    analyticsAllow: "Permitir",
+    analyticsDecline: "No, gracias",
+    analyticsPreferences: "Analítica",
   },
   pt: {
     name: "Português",
@@ -215,6 +237,11 @@ const translations = {
     unavailable: "Tudo (categorias indisponíveis)",
     clipboard:
       "Área de transferência indisponível. Copie a fortuna diretamente.",
+    analyticsConsent:
+      "O Google Analytics pode contar visitas e o que você experimenta. Sem anúncios.",
+    analyticsAllow: "Permitir",
+    analyticsDecline: "Não, obrigado",
+    analyticsPreferences: "Analítica",
   },
 };
 
@@ -325,6 +352,12 @@ function applyLocale() {
   setText("hint-third", text.hintThird);
   setText("footer-label", text.footer);
   setText("support-link", text.support);
+  setText("analytics-preferences", text.analyticsPreferences);
+  setText("analytics-consent-text", text.analyticsConsent);
+  setText("analytics-accept", text.analyticsAllow);
+  setText("analytics-reject", text.analyticsDecline);
+  $("analytics-accept").setAttribute("aria-label", text.analyticsAllow);
+  $("analytics-reject").setAttribute("aria-label", text.analyticsDecline);
   setText("encoding", text.encoding);
 }
 
@@ -372,7 +405,7 @@ function fortuneRequestPath(id) {
   return `/?${params}`;
 }
 
-async function loadFortune({ random = false } = {}) {
+async function loadFortune({ random = false, reason = "initial" } = {}) {
   if (busy) return;
   busy = true;
   refresh.disabled = true;
@@ -417,6 +450,11 @@ async function loadFortune({ random = false } = {}) {
     $("fortune-text").textContent = fortune;
     $("status").textContent = strings().statusFresh;
     renderCow();
+    trackSiteEvent("fortune_shown", {
+      reason: ["initial", "button", "keyboard", "category", "language"].includes(reason)
+        ? reason
+        : "initial",
+    });
   } catch (error) {
     if (abandonedPinned) {
       fortuneId = "";
@@ -477,6 +515,7 @@ async function loadCowArtwork() {
     if (!artwork || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(artwork))
       throw new Error("Invalid cow");
     cowArtwork = artwork;
+    return true;
   } catch {
     cowStyle.value = "default";
     cowArtwork = DEFAULT_COW;
@@ -542,20 +581,24 @@ async function loadLocales() {
   applyLocale();
 }
 
-refresh.addEventListener("click", () => loadFortune({ random: true }));
+refresh.addEventListener("click", () => loadFortune({ random: true, reason: "button" }));
 category.addEventListener("change", () => {
   fortuneId = "";
   syncSettingsUrl();
-  loadFortune({ random: true });
+  loadFortune({ random: true, reason: "category" });
 });
-cowStyle.addEventListener("change", loadCowArtwork);
+cowStyle.addEventListener("change", async () => {
+  const selected = cowStyle.value;
+  if ((await loadCowArtwork()) && cowStyle.value === selected)
+    trackSiteEvent("change_cow");
+});
 locale.addEventListener("change", async () => {
   currentLocale = locale.value;
   fortuneId = "";
   applyLocale();
   await loadCategories();
   syncSettingsUrl();
-  await loadFortune({ random: true });
+  await loadFortune({ random: true, reason: "language" });
   renderCow();
 });
 copy.addEventListener("click", async () => {
@@ -564,11 +607,13 @@ copy.addEventListener("click", async () => {
     // the shared link reopens this exact fortune, language, cow, and category.
     const websiteUrl = `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
     await navigator.clipboard.writeText(`${fortune}\n\n${websiteUrl}`);
+    trackSiteEvent("copy_fortune", { result: "copied" });
     $("copy-label").textContent = strings().copied;
     copyTimer = setTimeout(() => {
       $("copy-label").textContent = strings().copy;
     }, 2000);
   } catch {
+    trackSiteEvent("copy_fortune", { result: "clipboard_unavailable" });
     $("error").textContent = strings().clipboard;
     $("error").hidden = false;
   }
@@ -710,13 +755,17 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#a6adc8";
   context.fillText(domain, domainX, frameBottom + 5 * chromeScale);
   canvas.toBlob(async (blob) => {
-    if (!blob) return;
+    if (!blob) {
+      trackSiteEvent("copy_screenshot", { result: "failed" });
+      return;
+    }
     try {
       if (!navigator.clipboard || !window.ClipboardItem)
         throw new Error("Image clipboard is unavailable");
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
+      trackSiteEvent("copy_screenshot", { result: "copied" });
       $("screenshot-label").textContent = strings().copied;
     } catch {
       const link = document.createElement("a");
@@ -724,6 +773,7 @@ screenshot.addEventListener("click", async () => {
       link.href = URL.createObjectURL(blob);
       link.click();
       URL.revokeObjectURL(link.href);
+      trackSiteEvent("copy_screenshot", { result: "downloaded" });
       $("screenshot-label").textContent = strings().downloaded;
     }
     screenshotTimer = setTimeout(() => {
@@ -738,10 +788,89 @@ document.addEventListener("keydown", (event) => {
     !event.repeat
   ) {
     event.preventDefault();
-    loadFortune({ random: true });
+    loadFortune({ random: true, reason: "keyboard" });
   }
 });
+document.querySelector(".source-link").addEventListener("click", trackOutbound);
+$("support-link").addEventListener("click", trackOutbound);
+
+let analyticsReady = false;
+let analyticsId = "";
+
+function configuredMeasurementId() {
+  if (analyticsReady) return analyticsId;
+  analyticsReady = true;
+  try {
+    analyticsId = measurementId();
+  } catch (error) {
+    console.error(error);
+    analyticsId = "";
+  }
+  return analyticsId;
+}
+
+function analyticsContext() {
+  return {
+    locale: currentLocale,
+    category: category.value || "everything",
+    cow: cowStyle.value || "default",
+  };
+}
+
+function trackSiteEvent(name, params = {}) {
+  if (readConsent(localStorage) !== "granted") return;
+  track(name, { ...analyticsContext(), ...params });
+}
+
+function trackOutbound(event) {
+  let url;
+  try {
+    url = new URL(event.currentTarget.href);
+  } catch {
+    return;
+  }
+  trackSiteEvent("click", {
+    link_url: url.href,
+    link_domain: url.hostname,
+    outbound: "true",
+  });
+}
+
+function showConsentBanner({ focus = false } = {}) {
+  $("analytics-consent").hidden = false;
+  if (focus) $("analytics-accept").focus();
+}
+
+function hideConsentBanner() {
+  $("analytics-consent").hidden = true;
+}
+
+function chooseAnalytics(choice) {
+  const id = configuredMeasurementId();
+  if (!id) return;
+  applyAnalyticsChoice(choice, id);
+  hideConsentBanner();
+}
+
+function prepareAnalytics() {
+  const id = configuredMeasurementId();
+  if (!id) return;
+  $("analytics-preferences").hidden = false;
+  $("analytics-accept").addEventListener("click", () => chooseAnalytics("granted"));
+  $("analytics-reject").addEventListener("click", () => chooseAnalytics("denied"));
+  $("analytics-preferences").addEventListener("click", () =>
+    showConsentBanner({ focus: true }),
+  );
+  if (readConsent(localStorage) === "granted") installGoogleAnalytics(id);
+}
+
+function revealAnalyticsConsent() {
+  if (!configuredMeasurementId() || readConsent(localStorage)) return;
+  showConsentBanner();
+}
+
 async function initialize() {
+  prepareAnalytics();
   try {
     await Promise.all([
       waitForFonts(),
@@ -761,6 +890,7 @@ async function initialize() {
     renderCow();
   } finally {
     setLoading(false);
+    revealAnalyticsConsent();
   }
 }
 

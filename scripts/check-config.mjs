@@ -1,3 +1,7 @@
+import { measurementId } from "../web/analytics.js";
+
+measurementId(process.env.VITE_GA_MEASUREMENT_ID);
+
 const value = process.env.VITE_API_URL;
 if (!value)
   throw new Error(
