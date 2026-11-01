@@ -6,37 +6,151 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
-  web:
+  changes:
     runs-on: ubuntu-latest
     # Skip the push that lands the bump commit itself; pull requests still run CI.
     if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]') }}
+    outputs:
+      web: ${{ steps.out.outputs.web }}
+      worker: ${{ steps.out.outputs.worker }}
+      deploy_command: ${{ steps.out.outputs.deploy_command }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            web:
+              - 'web/**'
+              - 'tests/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vite.config.*'
+              - 'playwright.config.*'
+              - 'scripts/check-config.mjs'
+              - '.github/workflows/**'
+            worker:
+              - 'worker/**'
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'scripts/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/**'
+            deploy_command:
+              - 'worker/**'
+              - 'scripts/worker-deploy.mjs'
+              - 'scripts/fortune-data.mjs'
+              - 'scripts/debian-fortune-packages.json'
+              - 'scripts/generate-worker-assets.mjs'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+      - name: Set outputs
+        id: out
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            {
+              echo "web=true"
+              echo "worker=true"
+              echo "deploy_command=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "web=${{ steps.filter.outputs.web }}"
+              echo "worker=${{ steps.filter.outputs.worker }}"
+              echo "deploy_command=${{ steps.filter.outputs.deploy_command }}"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  web:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip (no web changes)
+        if: needs.changes.outputs.web != 'true'
+        run: echo "No web-related changes; skipping."
+
+      - if: needs.changes.outputs.web == 'true'
+        uses: actions/checkout@v7
+
+      - if: needs.changes.outputs.web == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm test
-      - run: npm run build
+
+      - if: needs.changes.outputs.web == 'true'
+        run: npm ci --no-audit --no-fund
+
+      - if: needs.changes.outputs.web == 'true'
+        run: npm test
+
+      - if: needs.changes.outputs.web == 'true'
+        run: npm run build
         env:
           VITE_API_URL: https://api.webfortune.app
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+
+      - if: needs.changes.outputs.web == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - if: needs.changes.outputs.web == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - if: needs.changes.outputs.web == 'true'
+        run: npm run test:e2e
 
   worker:
+    needs: changes
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]') }}
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - name: Skip (no worker changes)
+        if: needs.changes.outputs.worker != 'true'
+        run: echo "No worker-related changes; skipping."
+
+      - if: needs.changes.outputs.worker == 'true'
+        uses: actions/checkout@v7
+
+      - if: needs.changes.outputs.worker == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - if: needs.changes.outputs.worker == 'true'
+        uses: cachix/install-nix-action@v31
+
+      - if: needs.changes.outputs.worker == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            worker/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: worker-cargo-${{ runner.os }}-${{ hashFiles('worker/Cargo.lock') }}
+          restore-keys: |
+            worker-cargo-${{ runner.os }}-
+
       - name: Check Worker
+        if: needs.changes.outputs.worker == 'true'
         run: |
           nix develop --command bash -euo pipefail -c '
             npm ci --no-audit --no-fund
@@ -48,7 +162,9 @@ jobs:
             cd ..
             npm run worker:deploy -- --dry-run --outdir ../build/worker-dry-run
           '
+
       - name: Smoke-test the Worker locally
+        if: needs.changes.outputs.worker == 'true'
         env:
           WEBFORTUNE_SKIP_WORKER_BUILD: "1"
         run: |
@@ -66,9 +182,10 @@ jobs:
   # that image will: Node on Ubuntu, fortune packages downloaded, Rust installed
   # by the script. `--dry-run` stops before uploading.
   worker-deploy-command:
+    needs: changes
+    if: needs.changes.outputs.deploy_command == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]') }}
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
@@ -85,5 +202,7 @@ jobs:
             ~/.cargo/git
             ~/.rustup
           key: worker-build-0.8.7-${{ runner.os }}
+          restore-keys: |
+            worker-build-0.8.7-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
       - run: npm run worker:deploy -- --dry-run --outdir ../build/worker-dry-run
