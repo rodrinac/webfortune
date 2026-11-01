@@ -18,7 +18,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     # Skip the push that lands the bump commit itself; pull requests still run CI.
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip version-bump]') }}
+    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release): v') }}"
     outputs:
       web: ${{ steps.out.outputs.web }}
       worker: ${{ steps.out.outputs.worker }}

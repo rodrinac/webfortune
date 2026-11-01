@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const REPO_ROOT = process.cwd();
 const PACKAGE_JSON_PATH = path.join(REPO_ROOT, "package.json");
@@ -53,10 +54,15 @@ const getCommitsSince = (tag) => {
     .filter(Boolean);
 };
 
-const classifyBump = (commitMessages) => {
+export function isAutomatedReleaseCommit(message) {
+  return message.split("\n")[0].trim().startsWith("chore(release): v");
+}
+
+export function classifyBump(commitMessages) {
   let bump = null;
 
   for (const message of commitMessages) {
+    if (isAutomatedReleaseCommit(message)) continue;
     const [subject, ...bodyLines] = message.split("\n");
     const body = bodyLines.join("\n");
     const match = CONVENTIONAL_COMMIT_PATTERN.exec(subject.trim());
@@ -83,7 +89,7 @@ const classifyBump = (commitMessages) => {
   }
 
   return bump;
-};
+}
 
 const bumpVersion = (version, bump) => {
   const [major, minor, patch] = version.split(".").map(Number);
@@ -158,4 +164,6 @@ const main = () => {
   process.stdout.write(nextVersion);
 };
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
