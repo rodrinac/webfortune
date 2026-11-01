@@ -78,20 +78,27 @@ function alreadyConfigured(view, measurement) {
   );
 }
 
-// The tag is on the page immediately so GA4 can see it. Storage stays denied
-// until the visitor allows it, and consent is queued before the script request.
-export function googleTagSnippet(id) {
+// External classic script for the document head. It runs before gtag.js, so
+// consent is queued before the tag request. Storage stays denied until the
+// visitor allows it. Keeping this out of an inline script lets script-src
+// omit 'unsafe-inline'.
+export function googleTagBootstrap(id) {
   const measurement = measurementId(id);
   if (!measurement) return "";
-  return `<script>
-window.dataLayer=window.dataLayer||[];
+  return `window.dataLayer=window.dataLayer||[];
 function gtag(){dataLayer.push(arguments);}
 gtag("js",new Date());
 var webfortuneAnalytics="";
 try{webfortuneAnalytics=localStorage.getItem(${JSON.stringify(CONSENT_KEY)})||"";}catch(e){}
 gtag("consent","default",webfortuneAnalytics==="granted"?${JSON.stringify(grantedConsent)}:${JSON.stringify(deniedConsent)});
 gtag("config",${JSON.stringify(measurement)},{page_location:location.origin+location.pathname});
-</script>
+`;
+}
+
+export function googleTagSnippet(id) {
+  const measurement = measurementId(id);
+  if (!measurement) return "";
+  return `<script src="./gtag-bootstrap.js"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=${measurement}"></script>`;
 }
 

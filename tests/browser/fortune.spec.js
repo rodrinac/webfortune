@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { writeFile } from "node:fs/promises";
 
 test("loads a fortune, selects categories, and stays within the viewport", async ({
