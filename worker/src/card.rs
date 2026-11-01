@@ -5,6 +5,7 @@
 //! non-test caller. Dead-code checks still run for the wasm32 build.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use fontdue::Font;
@@ -33,10 +34,20 @@ const GOLD: Rgb = Rgb::new(0xf9, 0xe2, 0xaf);
 const GREEN: Rgb = Rgb::new(0xa6, 0xe3, 0xa1);
 const PINK: Rgb = Rgb::new(0xf3, 0x8b, 0xa8);
 
-const WRAP_WIDTH: usize = 42;
-const MAX_FORTUNE_LINES: usize = 8;
-const MAX_COW_LINES: usize = 24;
-const MAX_BLOCK_LINES: usize = 26;
+const PREFERRED_WRAP: usize = 42;
+const MIN_WRAP: usize = 12;
+const MAX_WRAP: usize = 96;
+/// Readable floor. Taller cows shrink toward this, then reflow and truncate.
+/// Daemon's 22-row block fits just above 11px; a higher floor would cut the cow.
+const MIN_FONT_SIZE: f32 = 11.0;
+/// Cap so a one-line fortune cannot dwarf the wordmark.
+const MAX_FONT_SIZE: f32 = 56.0;
+const MESSAGE_CHAR_CAP: usize = 800;
+const COW_LINE_CAP: usize = 64;
+const COMMAND_SIZE: f32 = 22.0;
+const FIT_PAD: f32 = 1.0;
+const COMMAND_GAP: f32 = 6.0;
+const DOMAIN_GAP: f32 = 6.0;
 
 pub struct Card<'a> {
     pub message: &'a str,
@@ -73,12 +84,7 @@ pub fn render_fortune_card(message: &str, cow: &str, cow_name: &str) -> Vec<u8> 
 
 pub fn render_card(card: &Card<'_>) -> Vec<u8> {
     let mut canvas = Canvas::new(CARD_WIDTH, CARD_HEIGHT, BASE);
-    let frame = Rect {
-        x: 48.0,
-        y: 118.0,
-        w: 1104.0,
-        h: 460.0,
-    };
+    let frame = terminal_frame();
     paint_round_rect(
         &mut canvas,
         Rect {
@@ -96,7 +102,7 @@ pub fn render_card(card: &Card<'_>) -> Vec<u8> {
     paint_terminal(&mut canvas, frame);
     draw_header(&mut canvas, card.tagline);
     draw_command(&mut canvas, frame, card.command);
-    draw_speech(&mut canvas, frame, card.message, card.cow);
+    draw_speech(&mut canvas, frame, card.message, card.cow, card.command);
     draw_domain(&mut canvas, frame);
     encode_png(CARD_WIDTH, CARD_HEIGHT, &canvas.pixels)
 }
@@ -128,78 +134,49 @@ fn draw_header(canvas: &mut Canvas, tagline: &str) {
 
 fn draw_command(canvas: &mut Canvas, frame: Rect, command: &str) {
     let font = font();
-    let size = 22.0;
-    let baseline = frame.y + 3.0 + 70.0 + 36.0;
-    let prompt = if has_ink(font, '❯', size) {
-        "❯"
-    } else {
-        ">"
-    };
-    let cursor = if has_ink(font, '▍', size) {
-        "▍"
-    } else {
-        "_"
-    };
+    let glyphs = command_glyphs();
+    let baseline = command_baseline(frame);
     let x = frame.x + 36.0;
-    let (after_prompt, _) = draw_text(canvas, font, prompt, x, baseline, size, GREEN);
+    let (after_prompt, _) = draw_text(
+        canvas,
+        font,
+        glyphs.prompt,
+        x,
+        baseline,
+        COMMAND_SIZE,
+        GREEN,
+    );
     let (after_command, _) = draw_text(
         canvas,
         font,
         &format!(" {command}"),
         after_prompt,
         baseline,
-        size,
+        COMMAND_SIZE,
         SUBTEXT,
     );
     draw_text(
         canvas,
         font,
-        &format!(" {cursor}"),
+        &format!(" {}", glyphs.cursor),
         after_command,
         baseline,
-        size,
+        COMMAND_SIZE,
         GOLD,
     );
 }
 
-fn draw_speech(canvas: &mut Canvas, frame: Rect, message: &str, cow: &str) {
-    let font = font();
-    let lines: Vec<String> = speech(message, cow)
-        .split('\n')
-        .map(str::to_string)
-        .collect();
-    if lines.is_empty() {
-        return;
-    }
-    let content = Rect {
-        x: frame.x + 36.0,
-        y: frame.y + 3.0 + 70.0 + 52.0,
-        w: frame.w - 72.0,
-        h: frame.h - 3.0 - 70.0 - 52.0 - 58.0,
-    };
-    let cols = lines
-        .iter()
-        .map(|line| char_len(line))
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let rows = lines.len().max(1);
-    let size = fit_size(font, cols, rows, content.w, content.h).clamp(11.0, 34.0);
-    let metrics = line_metrics(font, size);
-    let advance = metrics.advance.max(1.0);
-    let block_w = cols as f32 * advance;
-    let block_h = rows as f32 * metrics.line_height;
-    let origin_x = content.x + (content.w - block_w) / 2.0;
-    let origin_y = content.y + (content.h - block_h) / 2.0;
-    for (row, line) in lines.iter().enumerate() {
-        for (column, character) in line.chars().enumerate() {
+fn draw_speech(canvas: &mut Canvas, frame: Rect, message: &str, cow: &str, command: &str) {
+    let block = layout_speech(message, cow, speech_content(frame, command));
+    for row in &block.rows {
+        let baseline = row.top + row.above;
+        for (column, character) in row.text.chars().enumerate() {
             draw_cell(
                 canvas,
                 character,
-                origin_x + column as f32 * advance,
-                origin_y + row as f32 * metrics.line_height,
-                size,
-                &metrics,
+                block.origin_x + column as f32 * block.advance,
+                baseline,
+                block.size,
                 MAUVE,
             );
         }
@@ -213,7 +190,7 @@ fn draw_domain(canvas: &mut Canvas, frame: Rect) {
     let width = measure(font, label, size);
     let x = frame.x + (frame.w - width) / 2.0;
     let baseline = frame.y + frame.h + 6.0;
-    canvas.fill_rect(x - 16.0, frame.y + frame.h - 12.0, width + 32.0, 26.0, BASE);
+    canvas.fill_rect(x - 16.0, domain_top(frame), width + 32.0, 26.0, BASE);
     draw_text(canvas, font, label, x, baseline, size, SUBTEXT);
 }
 
@@ -279,26 +256,412 @@ fn paint_round_rect(
 }
 
 struct LineBox {
-    ascent: f32,
     advance: f32,
     line_height: f32,
 }
 
-fn fit_size(font: &Font, cols: usize, rows: usize, max_w: f32, max_h: f32) -> f32 {
-    let probe = line_metrics(font, 20.0);
-    let width_at = |size: f32| cols as f32 * probe.advance * (size / 20.0);
-    let height_at = |size: f32| rows as f32 * probe.line_height * (size / 20.0);
-    let by_width = if cols == 0 {
-        34.0
-    } else {
-        20.0 * max_w / width_at(20.0)
+fn terminal_frame() -> Rect {
+    Rect {
+        x: 48.0,
+        y: 118.0,
+        w: 1104.0,
+        h: 460.0,
+    }
+}
+
+fn command_baseline(frame: Rect) -> f32 {
+    frame.y + 3.0 + 70.0 + 36.0
+}
+
+fn domain_top(frame: Rect) -> f32 {
+    frame.y + frame.h - 12.0
+}
+
+struct CommandGlyphs {
+    prompt: &'static str,
+    cursor: &'static str,
+}
+
+fn command_glyphs() -> CommandGlyphs {
+    let font = font();
+    CommandGlyphs {
+        prompt: if has_ink(font, '❯', COMMAND_SIZE) {
+            "❯"
+        } else {
+            ">"
+        },
+        cursor: if has_ink(font, '▍', COMMAND_SIZE) {
+            "▍"
+        } else {
+            "_"
+        },
+    }
+}
+
+/// Area inside the terminal, below the command ink and above the domain pill.
+fn speech_content(frame: Rect, command: &str) -> Rect {
+    let glyphs = command_glyphs();
+    let sample = format!("{} {command} {}", glyphs.prompt, glyphs.cursor);
+    let below = text_below(font(), &sample, COMMAND_SIZE);
+    let top = (command_baseline(frame) + below + COMMAND_GAP).ceil();
+    let bottom = (domain_top(frame) - DOMAIN_GAP).floor();
+    Rect {
+        x: frame.x + 36.0,
+        y: top,
+        w: frame.w - 72.0,
+        h: (bottom - top).max(0.0),
+    }
+}
+
+fn text_below(font: &Font, text: &str, size: f32) -> f32 {
+    let mut below = 0.0_f32;
+    for character in text.chars() {
+        if character == ' ' {
+            continue;
+        }
+        let (glyph, bitmap) = font.rasterize(character, size);
+        if glyph.width == 0 || bitmap.is_empty() {
+            continue;
+        }
+        below = below.max((-glyph.ymin).max(0) as f32);
+    }
+    below
+}
+
+struct SpeechBlock {
+    rows: Vec<PlacedRow>,
+    size: f32,
+    origin_x: f32,
+    advance: f32,
+    /// Kept for the fit tests; drawing uses `rows` directly.
+    #[cfg_attr(not(test), allow(dead_code))]
+    content: Rect,
+}
+
+struct PlacedRow {
+    text: String,
+    top: f32,
+    above: f32,
+    #[cfg_attr(not(test), allow(dead_code))]
+    below: f32,
+    /// Ink edges relative to `origin_x` (left may be negative).
+    #[cfg_attr(not(test), allow(dead_code))]
+    ink_left: f32,
+    #[cfg_attr(not(test), allow(dead_code))]
+    ink_right: f32,
+}
+
+#[derive(Clone, Copy)]
+struct GlyphInk {
+    above: f32,
+    below: f32,
+    xmin: f32,
+    right: f32,
+}
+
+struct MeasuredRow {
+    above: f32,
+    below: f32,
+    ink_left: f32,
+    ink_right: f32,
+}
+
+struct Measured {
+    rows: Vec<MeasuredRow>,
+    advance: f32,
+    min_left: f32,
+    max_right: f32,
+    height: f32,
+}
+
+struct Composed {
+    lines: Vec<String>,
+    fortune_lines: usize,
+    cow_lines: usize,
+}
+
+fn layout_speech(message: &str, cow: &str, content: Rect) -> SpeechBlock {
+    let font = font();
+    let mut cache = GlyphCache::default();
+    let message: String = message.chars().take(MESSAGE_CHAR_CAP).collect();
+    let cow = normalize_cow(cow);
+    let alphabet = speech_alphabet(&message, &cow);
+    let lines = arrange(&message, &cow, content, &alphabet, font, &mut cache);
+    let size = choose_size(font, &lines, content, &alphabet, &mut cache).unwrap_or(MIN_FONT_SIZE);
+    position(lines, size, content, font, &alphabet, &mut cache)
+}
+
+fn speech_alphabet(message: &str, cow: &[String]) -> String {
+    let mut alphabet = String::from(" _-/\\|<>().,'`^…");
+    alphabet.push_str(message);
+    for line in cow {
+        alphabet.push_str(line);
+    }
+    alphabet
+}
+
+fn arrange(
+    message: &str,
+    cow: &[String],
+    content: Rect,
+    alphabet: &str,
+    font: &Font,
+    cache: &mut GlyphCache,
+) -> Vec<String> {
+    let max_cols = max_columns(font, content);
+    let preferred = compose(
+        message,
+        cow,
+        PREFERRED_WRAP,
+        usize::MAX,
+        usize::MAX,
+        max_cols,
+    );
+    if fits(
+        font,
+        &preferred.lines,
+        MIN_FONT_SIZE,
+        content,
+        alphabet,
+        cache,
+    ) {
+        return preferred.lines;
+    }
+
+    let mut fit = Fit {
+        font,
+        cache,
+        content,
+        alphabet,
+        max_cols,
     };
-    let by_height = if rows == 0 {
-        34.0
-    } else {
-        20.0 * max_h / height_at(20.0)
-    };
-    by_width.min(by_height)
+    if let Some(lines) = best_wrap(message, cow, usize::MAX, usize::MAX, &mut fit) {
+        return lines;
+    }
+
+    let fortune_cap = wrap_fortune(message, MIN_WRAP).len().max(1);
+    if let Some(lines) = best_truncation(
+        message,
+        cow,
+        1..=fortune_cap,
+        cow.len().max(1)..=cow.len().max(1),
+        &mut fit,
+    ) {
+        return lines;
+    }
+    best_truncation(message, cow, 1..=1, 1..=cow.len().max(1), &mut fit).unwrap_or(preferred.lines)
+}
+
+struct Fit<'a> {
+    font: &'a Font,
+    cache: &'a mut GlyphCache,
+    content: Rect,
+    alphabet: &'a str,
+    max_cols: usize,
+}
+
+fn best_wrap(
+    message: &str,
+    cow: &[String],
+    max_fortune: usize,
+    max_cow: usize,
+    fit: &mut Fit<'_>,
+) -> Option<Vec<String>> {
+    let mut best: Option<(f32, usize, Vec<String>)> = None;
+    for wrap in MIN_WRAP..=MAX_WRAP {
+        let composed = compose(message, cow, wrap, max_fortune, max_cow, fit.max_cols);
+        if !fits(
+            fit.font,
+            &composed.lines,
+            MIN_FONT_SIZE,
+            fit.content,
+            fit.alphabet,
+            fit.cache,
+        ) {
+            continue;
+        }
+        let estimated = estimate_size(
+            fit.font,
+            &composed.lines,
+            fit.content,
+            fit.alphabet,
+            fit.cache,
+        );
+        let distance = wrap.abs_diff(PREFERRED_WRAP);
+        let replace = match &best {
+            None => true,
+            Some((score, previous, _)) => {
+                estimated > *score + 0.25
+                    || ((estimated - *score).abs() <= 0.25 && distance < *previous)
+            }
+        };
+        if replace {
+            best = Some((estimated, distance, composed.lines));
+        }
+    }
+    best.map(|(_, _, lines)| lines)
+}
+
+fn best_truncation(
+    message: &str,
+    cow: &[String],
+    fortune_keeps: impl Iterator<Item = usize> + Clone,
+    cow_keeps: impl Iterator<Item = usize> + Clone,
+    fit: &mut Fit<'_>,
+) -> Option<Vec<String>> {
+    let mut best: Option<(usize, usize, f32, usize, Vec<String>)> = None;
+    for fortune_keep in fortune_keeps {
+        for cow_keep in cow_keeps.clone() {
+            for wrap in MIN_WRAP..=MAX_WRAP {
+                let composed = compose(message, cow, wrap, fortune_keep, cow_keep, fit.max_cols);
+                if !fits(
+                    fit.font,
+                    &composed.lines,
+                    MIN_FONT_SIZE,
+                    fit.content,
+                    fit.alphabet,
+                    fit.cache,
+                ) {
+                    continue;
+                }
+                let estimated = estimate_size(
+                    fit.font,
+                    &composed.lines,
+                    fit.content,
+                    fit.alphabet,
+                    fit.cache,
+                );
+                let distance = wrap.abs_diff(PREFERRED_WRAP);
+                let replace = match &best {
+                    None => true,
+                    Some((fortunes, cows, score, previous, _)) => {
+                        composed.fortune_lines > *fortunes
+                            || (composed.fortune_lines == *fortunes && composed.cow_lines > *cows)
+                            || (composed.fortune_lines == *fortunes
+                                && composed.cow_lines == *cows
+                                && (estimated > *score + 0.25
+                                    || ((estimated - *score).abs() <= 0.25
+                                        && distance < *previous)))
+                    }
+                };
+                if replace {
+                    best = Some((
+                        composed.fortune_lines,
+                        composed.cow_lines,
+                        estimated,
+                        distance,
+                        composed.lines,
+                    ));
+                }
+            }
+        }
+    }
+    best.map(|(_, _, _, _, lines)| lines)
+}
+
+fn choose_size(
+    font: &Font,
+    lines: &[String],
+    content: Rect,
+    alphabet: &str,
+    cache: &mut GlyphCache,
+) -> Option<f32> {
+    if lines.is_empty() || !fits(font, lines, MIN_FONT_SIZE, content, alphabet, cache) {
+        return None;
+    }
+    if fits(font, lines, MAX_FONT_SIZE, content, alphabet, cache) {
+        return Some(MAX_FONT_SIZE);
+    }
+    let mut lo = MIN_FONT_SIZE;
+    let mut hi = MAX_FONT_SIZE;
+    for _ in 0..16 {
+        let mid = (lo + hi) * 0.5;
+        if fits(font, lines, mid, content, alphabet, cache) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let mut size = lo;
+    while size > MIN_FONT_SIZE && !fits(font, lines, size, content, alphabet, cache) {
+        size = (size - 0.25).max(MIN_FONT_SIZE);
+    }
+    Some(size)
+}
+
+fn estimate_size(
+    font: &Font,
+    lines: &[String],
+    content: Rect,
+    alphabet: &str,
+    cache: &mut GlyphCache,
+) -> f32 {
+    let measured = measure_block(font, lines, MIN_FONT_SIZE, alphabet, cache);
+    let usable_w = (content.w - 2.0 * FIT_PAD).max(1.0);
+    let usable_h = (content.h - 2.0 * FIT_PAD).max(1.0);
+    let width = (measured.max_right - measured.min_left).max(1.0);
+    let height = measured.height.max(1.0);
+    let by_width = MIN_FONT_SIZE * usable_w / width;
+    let by_height = MIN_FONT_SIZE * usable_h / height;
+    by_width.min(by_height).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
+}
+
+fn fits(
+    font: &Font,
+    lines: &[String],
+    size: f32,
+    content: Rect,
+    alphabet: &str,
+    cache: &mut GlyphCache,
+) -> bool {
+    if lines.is_empty() {
+        return false;
+    }
+    let measured = measure_block(font, lines, size, alphabet, cache);
+    let width = measured.max_right - measured.min_left;
+    width <= content.w - 2.0 * FIT_PAD && measured.height <= content.h - 2.0 * FIT_PAD
+}
+
+fn position(
+    lines: Vec<String>,
+    size: f32,
+    content: Rect,
+    font: &Font,
+    alphabet: &str,
+    cache: &mut GlyphCache,
+) -> SpeechBlock {
+    let measured = measure_block(font, &lines, size, alphabet, cache);
+    let inner_w = (content.w - 2.0 * FIT_PAD).max(0.0);
+    let inner_h = (content.h - 2.0 * FIT_PAD).max(0.0);
+    let block_w = (measured.max_right - measured.min_left).max(0.0);
+    let slack_x = (inner_w - block_w).max(0.0);
+    let slack_y = (inner_h - measured.height).max(0.0);
+    let origin_x = content.x + FIT_PAD - measured.min_left + slack_x / 2.0;
+    let mut top = content.y + FIT_PAD + slack_y / 2.0;
+    let gap = line_gap(size);
+    let last_index = lines.len().saturating_sub(1);
+    let mut rows = Vec::with_capacity(lines.len());
+    for (index, (text, row)) in lines.into_iter().zip(measured.rows).enumerate() {
+        rows.push(PlacedRow {
+            text,
+            top,
+            above: row.above,
+            below: row.below,
+            ink_left: row.ink_left,
+            ink_right: row.ink_right,
+        });
+        top += row.above + row.below;
+        if index != last_index {
+            top += gap;
+        }
+    }
+    SpeechBlock {
+        rows,
+        size,
+        origin_x,
+        advance: measured.advance,
+        content,
+    }
 }
 
 fn line_metrics(font: &Font, size: f32) -> LineBox {
@@ -306,27 +669,17 @@ fn line_metrics(font: &Font, size: f32) -> LineBox {
     let advance = font.metrics('M', size).advance_width;
     match metrics {
         Some(metrics) => LineBox {
-            ascent: metrics.ascent,
             advance: if advance > 0.0 { advance } else { size * 0.6 },
             line_height: metrics.new_line_size.max(size),
         },
         None => LineBox {
-            ascent: size * 0.8,
             advance: if advance > 0.0 { advance } else { size * 0.6 },
             line_height: size * 1.35,
         },
     }
 }
 
-fn draw_cell(
-    canvas: &mut Canvas,
-    character: char,
-    x: f32,
-    y: f32,
-    size: f32,
-    metrics: &LineBox,
-    color: Rgb,
-) {
+fn draw_cell(canvas: &mut Canvas, character: char, x: f32, baseline: f32, size: f32, color: Rgb) {
     if character == ' ' || character == '\t' {
         return;
     }
@@ -335,7 +688,7 @@ fn draw_cell(
         return;
     }
     let origin_x = x + glyph.xmin as f32;
-    let origin_y = y + metrics.ascent - glyph.height as f32 - glyph.ymin as f32;
+    let origin_y = baseline - glyph.height as f32 - glyph.ymin as f32;
     blit(canvas, &bitmap, glyph.width, origin_x, origin_y, color);
 }
 
@@ -423,30 +776,120 @@ fn fill_circle(canvas: &mut Canvas, cx: f32, cy: f32, radius: f32, color: Rgb) {
     }
 }
 
-fn speech(message: &str, cow: &str) -> String {
-    let clipped: String = message.chars().take(800).collect();
-    let mut wrapped = wrap_fortune(&clipped, WRAP_WIDTH);
-    if wrapped.iter().all(|line| line.trim().is_empty()) {
-        wrapped = wrap_fortune(BRAND_MESSAGE, WRAP_WIDTH);
-    }
-    let cow_lines = cow_lines(cow);
-    let mut keep = wrapped.len().clamp(1, MAX_FORTUNE_LINES);
-    while keep + cow_lines.len() > MAX_BLOCK_LINES && keep > 1 {
-        keep -= 1;
-    }
-    let truncated = wrapped.len() > keep;
-    let mut body: Vec<String> = wrapped.into_iter().take(keep).collect();
-    if truncated {
-        if let Some(last) = body.last_mut() {
-            *last = "…".to_string();
-        }
-    }
-    let mut lines = bubble(&body);
-    lines.extend(cow_lines);
-    lines.join("\n")
+#[derive(Default)]
+struct GlyphCache {
+    entries: HashMap<(u32, char), Option<GlyphInk>>,
 }
 
-fn cow_lines(cow: &str) -> Vec<String> {
+impl GlyphCache {
+    fn ink(&mut self, font: &Font, character: char, size: f32) -> Option<GlyphInk> {
+        if character == ' ' || character == '\t' {
+            return None;
+        }
+        let key = (size.to_bits(), character);
+        if let Some(cached) = self.entries.get(&key) {
+            return *cached;
+        }
+        let (glyph, bitmap) = font.rasterize(character, size);
+        let ink = if glyph.width == 0 || bitmap.is_empty() {
+            None
+        } else {
+            let top = glyph.height as i32 + glyph.ymin;
+            Some(GlyphInk {
+                above: top.max(0) as f32,
+                below: (-glyph.ymin).max(0) as f32,
+                xmin: glyph.xmin as f32,
+                right: glyph.xmin as f32 + glyph.width as f32,
+            })
+        };
+        self.entries.insert(key, ink);
+        ink
+    }
+}
+
+fn line_gap(size: f32) -> f32 {
+    (size * 0.08).max(1.0)
+}
+
+fn max_columns(font: &Font, content: Rect) -> usize {
+    let advance = font.metrics('M', MIN_FONT_SIZE).advance_width.max(1.0);
+    let usable = (content.w - 2.0 * FIT_PAD).max(advance);
+    ((usable / advance).floor() as usize).max(1)
+}
+
+fn line_box(font: &Font, size: f32, alphabet: &str, cache: &mut GlyphCache) -> (f32, f32) {
+    let mut above = 0.0_f32;
+    let mut below = 0.0_f32;
+    for character in alphabet.chars() {
+        if let Some(glyph) = cache.ink(font, character, size) {
+            above = above.max(glyph.above);
+            below = below.max(glyph.below);
+        }
+    }
+    if above == 0.0 && below == 0.0 {
+        below = size * 0.60;
+    }
+    (above, below)
+}
+
+fn measure_block(
+    font: &Font,
+    lines: &[String],
+    size: f32,
+    alphabet: &str,
+    cache: &mut GlyphCache,
+) -> Measured {
+    let advance = font.metrics('M', size).advance_width.max(1.0);
+    let mut rows = Vec::with_capacity(lines.len());
+    let mut min_left = 0.0_f32;
+    let mut max_right = 0.0_f32;
+    for line in lines {
+        let mut above = 0.0_f32;
+        let mut below = 0.0_f32;
+        let mut ink_left = 0.0_f32;
+        let mut ink_right = 0.0_f32;
+        for (column, character) in line.chars().enumerate() {
+            let x = column as f32 * advance;
+            ink_right = ink_right.max(x + advance);
+            if let Some(glyph) = cache.ink(font, character, size) {
+                above = above.max(glyph.above);
+                below = below.max(glyph.below);
+                ink_left = ink_left.min(x + glyph.xmin);
+                ink_right = ink_right.max(x + glyph.right);
+            }
+        }
+        min_left = min_left.min(ink_left);
+        max_right = max_right.max(ink_right);
+        rows.push(MeasuredRow {
+            above,
+            below,
+            ink_left,
+            ink_right,
+        });
+    }
+    // One line box for every row so the cow keeps a monospace rhythm. The
+    // box comes from the whole message and cow, not from whichever rows
+    // survived truncation — dropping a descender must not shrink the leading.
+    let (max_above, max_below) = line_box(font, size, alphabet, cache);
+    for row in &mut rows {
+        row.above = max_above;
+        row.below = max_below;
+    }
+    let height = if rows.is_empty() {
+        0.0
+    } else {
+        rows.len() as f32 * (max_above + max_below) + (rows.len() - 1) as f32 * line_gap(size)
+    };
+    Measured {
+        rows,
+        advance,
+        min_left,
+        max_right,
+        height,
+    }
+}
+
+fn normalize_cow(cow: &str) -> Vec<String> {
     let normalized = cow.replace("\r\n", "\n").replace('\r', "");
     let source = if normalized.trim().is_empty() {
         DEFAULT_COW
@@ -454,11 +897,101 @@ fn cow_lines(cow: &str) -> Vec<String> {
         normalized.trim_matches('\n')
     };
     let mut lines: Vec<String> = source.split('\n').map(str::to_string).collect();
-    if lines.len() > MAX_COW_LINES {
-        lines.truncate(MAX_COW_LINES - 1);
+    if lines.len() > COW_LINE_CAP {
+        lines.truncate(COW_LINE_CAP - 1);
         lines.push("…".to_string());
     }
     lines
+}
+
+fn clip_cols(line: &str, max_cols: usize) -> String {
+    if max_cols == 0 || char_len(line) <= max_cols {
+        return line.to_string();
+    }
+    let mut clipped: String = line.chars().take(max_cols - 1).collect();
+    clipped.push('…');
+    clipped
+}
+
+fn mark_fortune_ellipsis(line: &mut String) {
+    let mut chars: Vec<char> = line.chars().collect();
+    if chars.len() <= 1 {
+        *line = "…".to_string();
+        return;
+    }
+    chars.pop();
+    chars.push('…');
+    *line = chars.into_iter().collect();
+}
+
+fn compose(
+    message: &str,
+    cow: &[String],
+    wrap: usize,
+    max_fortune_lines: usize,
+    max_cow_lines: usize,
+    max_cols: usize,
+) -> Composed {
+    let wrap = wrap.max(1);
+    let mut wrapped = wrap_fortune(message, wrap);
+    if wrapped.iter().all(|line| line.trim().is_empty()) {
+        wrapped = wrap_fortune(BRAND_MESSAGE, wrap);
+    }
+    if wrapped.is_empty() {
+        wrapped.push(BRAND_MESSAGE.to_string());
+    }
+    let fortune_total = wrapped.len();
+    let keep = wrapped.len().min(max_fortune_lines.max(1));
+    let fortune_truncated = fortune_total > keep;
+    let mut body: Vec<String> = wrapped.into_iter().take(keep).collect();
+    if fortune_truncated {
+        if let Some(last) = body.last_mut() {
+            mark_fortune_ellipsis(last);
+        }
+    }
+    let text_cols = max_cols.saturating_sub(4).max(1);
+    for line in &mut body {
+        *line = clip_cols(line, text_cols);
+    }
+    let mut cows: Vec<String> = cow.iter().take(max_cow_lines.max(1)).cloned().collect();
+    if cows.is_empty() {
+        cows = normalize_cow("");
+    }
+    let cow_truncated = cow.len() > cows.len();
+    if cow_truncated {
+        if let Some(last) = cows.last_mut() {
+            *last = "…".to_string();
+        }
+    }
+    for line in &mut cows {
+        *line = clip_cols(line, max_cols.max(1));
+    }
+    let fortune_lines = body.len();
+    let cow_lines = cows.len();
+    let mut lines = bubble(&body);
+    for line in &mut lines {
+        *line = clip_cols(line, max_cols.max(1));
+    }
+    lines.extend(cows);
+    Composed {
+        lines,
+        fortune_lines,
+        cow_lines,
+    }
+}
+
+#[cfg(test)]
+fn speech(message: &str, cow: &str) -> String {
+    layout_speech(
+        message,
+        cow,
+        speech_content(terminal_frame(), "fortune | cowsay"),
+    )
+    .rows
+    .into_iter()
+    .map(|row| row.text)
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 fn wrap_fortune(text: &str, width: usize) -> Vec<String> {
@@ -648,8 +1181,10 @@ fn encode_png(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
     let mut encoder = png::Encoder::new(&mut buffer, width, height);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
-    encoder.set_compression(png::Compression::Fast);
-    encoder.set_filter(png::Filter::Sub);
+    // Fast compression blows past the 300KB preview budget once the speech
+    // block is large enough to fill the terminal.
+    encoder.set_compression(png::Compression::Balanced);
+    encoder.set_filter(png::Filter::Adaptive);
     let mut writer = encoder.write_header().expect("png header");
     writer.write_image_data(pixels).expect("png pixels");
     writer.finish().expect("png finish");
@@ -716,7 +1251,247 @@ mod tests {
         let clipped = render_fortune_card(&huge, "", "default");
         assert_eq!(png_size(&clipped), (1200, 630));
         assert!(clipped.len() < 300 * 1024);
-        assert!(speech(&huge, DEFAULT_COW).contains('…'));
+        let stacked = "moo\n".repeat(80);
+        assert!(
+            speech(&stacked, DEFAULT_COW).contains('…'),
+            "a fortune with more rows than the panel is truncated"
+        );
+    }
+
+    #[test]
+    fn speech_block_fills_the_terminal_without_overflow() {
+        let cases = [
+            ("default", BRAND_MESSAGE, installed_cow("default")),
+            ("daemon", BRAND_MESSAGE, installed_cow("daemon")),
+            ("stegosaurus", BRAND_MESSAGE, installed_cow("stegosaurus")),
+            (
+                "long",
+                "The cow that mooed at midnight still had more to say about grass, rain, and the long road home. ",
+                installed_cow("default"),
+            ),
+        ];
+        let long_message = cases[3].1.repeat(12);
+        let mut sizes = std::collections::HashMap::new();
+        for (name, message, cow) in cases {
+            let message = if name == "long" {
+                long_message.as_str()
+            } else {
+                message
+            };
+            let command = if name == "default" || name == "long" {
+                "fortune | cowsay".to_string()
+            } else {
+                format!("fortune | cowsay -f {name}")
+            };
+            let block = layout_speech(message, &cow, speech_content(terminal_frame(), &command));
+            assert_block_inside(&block, name);
+            let png =
+                render_fortune_card(message, &cow, if name == "long" { "default" } else { name });
+            assert_eq!(png_size(&png), (CARD_WIDTH, CARD_HEIGHT));
+            assert!(png.len() < 300 * 1024, "{name} png is {} bytes", png.len());
+            assert_mauve_inside(&png, block.content, name);
+            if name == "daemon" || name == "stegosaurus" || name == "default" {
+                assert!(
+                    block
+                        .rows
+                        .iter()
+                        .any(|row| row.text.contains("very wise cow")),
+                    "{name} dropped the fortune: {:?}",
+                    block.rows.iter().map(|row| &row.text).collect::<Vec<_>>()
+                );
+                assert!(
+                    !block.rows.iter().any(|row| row.text == "…"),
+                    "{name} should fit without truncating the cow"
+                );
+            }
+            sizes.insert(name, block.size);
+        }
+        let default_size = sizes["default"];
+        let former = former_default_font_size();
+        assert!(
+            default_size > sizes["stegosaurus"] && sizes["stegosaurus"] > sizes["daemon"],
+            "shorter cows should set larger type: default {default_size}, stegosaurus {}, daemon {}",
+            sizes["stegosaurus"],
+            sizes["daemon"]
+        );
+        assert!(
+            default_size > former + 4.0,
+            "default cow font {default_size} should be clearly larger than the previous {former}"
+        );
+
+        let stacked = "moo\n".repeat(40);
+        let block = layout_speech(
+            &stacked,
+            DEFAULT_COW,
+            speech_content(terminal_frame(), "fortune | cowsay"),
+        );
+        assert_block_inside(&block, "stacked fortune");
+        assert!(
+            block.rows.iter().any(|row| row.text.contains('…')),
+            "stacked fortune should ellipsize"
+        );
+        assert!(block.size + 0.01 >= MIN_FONT_SIZE);
+    }
+
+    #[test]
+    #[ignore]
+    fn write_layout_samples() {
+        let dir = std::path::Path::new("/opt/cursor/artifacts");
+        std::fs::create_dir_all(dir).expect("artifacts dir");
+        let long = "The cow that mooed at midnight still had more to say about grass, rain, and the long road home. ".repeat(12);
+        let default_cow = installed_cow("default");
+        let daemon = installed_cow("daemon");
+        let stegosaurus = installed_cow("stegosaurus");
+        let samples = [
+            ("og-brand.png", BRAND_MESSAGE, DEFAULT_COW, "default"),
+            (
+                "og-default.png",
+                BRAND_MESSAGE,
+                default_cow.as_str(),
+                "default",
+            ),
+            ("og-daemon.png", BRAND_MESSAGE, daemon.as_str(), "daemon"),
+            (
+                "og-stegosaurus.png",
+                BRAND_MESSAGE,
+                stegosaurus.as_str(),
+                "stegosaurus",
+            ),
+            (
+                "og-long-fortune.png",
+                long.as_str(),
+                default_cow.as_str(),
+                "default",
+            ),
+        ];
+        for (name, message, cow, cow_name) in samples {
+            let png = if name == "og-brand.png" {
+                render_brand_card()
+            } else {
+                render_fortune_card(message, cow, cow_name)
+            };
+            std::fs::write(dir.join(name), png).expect("write sample");
+        }
+    }
+
+    fn installed_cow(name: &str) -> String {
+        let renderer = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../scripts/generate-worker-assets.mjs");
+        let cowpath =
+            std::env::var("COWPATH").unwrap_or_else(|_| "/usr/share/cowsay/cows".to_string());
+        let dir = cowpath.split(':').next().unwrap_or(&cowpath);
+        let renderer = renderer
+            .display()
+            .to_string()
+            .replace('\\', "\\\\")
+            .replace('\'', "\\'");
+        let code = format!(
+            "import {{ readFileSync }} from 'node:fs';\nimport {{ renderCow }} from '{renderer}';\nprocess.stdout.write(renderCow(readFileSync('{dir}/{name}.cow', 'utf8')));\n"
+        );
+        let output = std::process::Command::new("node")
+            .arg("--input-type=module")
+            .arg("--eval")
+            .arg(code)
+            .output()
+            .unwrap_or_else(|error| panic!("node failed to render {name}: {error}"));
+        assert!(
+            output.status.success(),
+            "render {name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("cow art is utf-8")
+    }
+
+    fn assert_block_inside(block: &SpeechBlock, name: &str) {
+        assert!(!block.rows.is_empty(), "{name} rendered no rows");
+        let right = block.content.x + block.content.w;
+        let bottom = block.content.y + block.content.h;
+        let domain = domain_top(terminal_frame());
+        assert!(
+            block.content.y + block.content.h <= domain,
+            "{name} content overlaps the domain label"
+        );
+        for (index, row) in block.rows.iter().enumerate() {
+            let row_bottom = row.top + row.above + row.below;
+            assert!(
+                row.top >= block.content.y - 0.05,
+                "{name} row {index} top {} is above the content",
+                row.top
+            );
+            assert!(
+                row_bottom <= bottom + 0.05,
+                "{name} row {index} bottom {row_bottom} leaves the content"
+            );
+            let left = block.origin_x + row.ink_left;
+            let ink_right = block.origin_x + row.ink_right;
+            assert!(
+                left >= block.content.x - 0.05,
+                "{name} row {index} ink left {left}"
+            );
+            assert!(
+                ink_right <= right + 0.05,
+                "{name} row {index} ink right {ink_right}"
+            );
+            let columns = char_len(&row.text);
+            for column in 0..columns {
+                let cell_left = block.origin_x + column as f32 * block.advance;
+                let cell_right = cell_left + block.advance;
+                assert!(
+                    cell_left >= block.content.x - 0.05,
+                    "{name} row {index} column {column} left {cell_left}"
+                );
+                assert!(
+                    cell_right <= right + 0.05,
+                    "{name} row {index} column {column} right {cell_right}"
+                );
+            }
+        }
+    }
+
+    fn former_default_font_size() -> f32 {
+        // The previous fitter used the font's full new_line_size, a 1032×277
+        // content box, and clamped into 11..=34. The brand message plus the
+        // default cow is 8 rows by 41 columns.
+        let font = font();
+        let probe = 20.0;
+        let metrics = font.horizontal_line_metrics(probe).expect("line metrics");
+        let advance = font.metrics('M', probe).advance_width;
+        let by_width = probe * 1032.0 / (41.0 * advance);
+        let by_height = probe * 277.0 / (8.0 * metrics.new_line_size.max(probe));
+        by_width.min(by_height).clamp(11.0, 34.0)
+    }
+
+    fn assert_mauve_inside(png: &[u8], content: Rect, name: &str) {
+        let decoder = png::Decoder::new(std::io::Cursor::new(png));
+        let mut reader = decoder.read_info().expect("decode");
+        let mut buffer = vec![0; reader.output_buffer_size().unwrap_or(0)];
+        let info = reader.next_frame(&mut buffer).expect("frame");
+        buffer.truncate(info.buffer_size());
+        let width = info.width;
+        for (index, pixel) in buffer.as_chunks::<3>().0.iter().enumerate() {
+            if !near_mauve(*pixel) {
+                continue;
+            }
+            let x = (index as u32 % width) as i32;
+            let y = (index as u32 / width) as i32;
+            if y < 100 {
+                continue;
+            }
+            let inside = x >= content.x.floor() as i32 - 1
+                && x <= (content.x + content.w).ceil() as i32
+                && y >= content.y.floor() as i32 - 1
+                && y <= (content.y + content.h).ceil() as i32;
+            assert!(
+                inside,
+                "{name} mauve pixel at {x},{y} is outside the terminal text"
+            );
+        }
+    }
+
+    fn near_mauve(pixel: [u8; 3]) -> bool {
+        (pixel[0] as i16 - MAUVE.r as i16).abs() <= 36
+            && (pixel[1] as i16 - MAUVE.g as i16).abs() <= 36
+            && (pixel[2] as i16 - MAUVE.b as i16).abs() <= 36
     }
 
     #[test]
