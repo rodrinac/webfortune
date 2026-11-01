@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Fast local gate (<10s typical). Runs only checks for paths touched vs upstream.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [[ -n "$upstream" ]]; then
+  changed="$(git diff --name-only "$upstream"...HEAD 2>/dev/null || true)"
+else
+  changed=""
+fi
+
+# Include unstaged, staged, and untracked paths so the gate covers WIP too.
+changed="$(printf '%s\n%s\n%s\n%s\n' \
+  "$changed" \
+  "$(git diff --name-only)" \
+  "$(git diff --name-only --cached)" \
+  "$(git ls-files --others --exclude-standard)")"
+
+need_web=0
+need_worker=0
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  case "$file" in
+    web/*|tests/*|vite.config.*|playwright.config.*|scripts/check-config.mjs)
+      need_web=1
+      ;;
+  esac
+  case "$file" in
+    worker/*|flake.nix|flake.lock)
+      need_worker=1
+      ;;
+  esac
+  case "$file" in
+    package.json|package-lock.json|scripts/*|.github/workflows/*|.githooks/*)
+      need_web=1
+      need_worker=1
+      ;;
+  esac
+done <<< "$changed"
+
+if [[ "$need_web" -eq 0 && "$need_worker" -eq 0 ]]; then
+  echo "pre-push: no web/worker changes; skipping local checks."
+  exit 0
+fi
+
+if [[ "$need_web" -eq 1 ]]; then
+  echo "pre-push: npm test"
+  npm test
+fi
+
+if [[ "$need_worker" -eq 1 ]]; then
+  if command -v nix >/dev/null 2>&1; then
+    echo "pre-push: cargo fmt + clippy (host targets)"
+    nix develop --command bash -euo pipefail -c '
+      cd worker
+      cargo fmt --check
+      cargo clippy --locked --all-targets -- -D warnings
+    '
+  elif command -v cargo >/dev/null 2>&1; then
+    echo "pre-push: cargo fmt + clippy (host targets)"
+    (
+      cd worker
+      cargo fmt --check
+      cargo clippy --locked --all-targets -- -D warnings
+    )
+  else
+    echo "pre-push: worker changes detected but neither nix nor cargo is available; skip worker checks." >&2
+  fi
+fi
+
+echo "pre-push: ok"

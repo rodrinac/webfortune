@@ -56,3 +56,4 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
 - **Local stack**: Nix flake provides Rust/wasm tooling and fortune/cow data.
   - Enter: `nix develop` (or `direnv allow`)
   - Worker + UI: `npm run worker:dev` then `npm run dev` (Vite proxies `/api` to `:8787`)
+  - Git hooks: `npm install` sets `core.hooksPath` to `.githooks/` (pre-push runs affected `npm test` / `cargo fmt`+`clippy`)
