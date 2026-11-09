@@ -104,9 +104,15 @@ const cows = await (await request("/cows")).json();
 assert.ok(Array.isArray(cows) && cows.includes("default"));
 assert.match(await (await request("/cows/default")).text(), /\(oo\)/);
 const randomResponse = await request("/");
+assert.match(
+  randomResponse.headers.get("content-type") || "",
+  /^text\/plain\b/,
+  "default fortune content-type",
+);
 const randomId = randomResponse.headers.get("x-fortune-id");
 const randomDatabase = assertFortuneId(randomId, "random");
-const randomText = (await randomResponse.text()).trim();
+const randomRaw = await randomResponse.text();
+const randomText = randomRaw.trim();
 assert.ok(randomText, "random fortune is empty");
 if (origin) {
   assert.match(
@@ -128,12 +134,38 @@ const categorizedResponse = await request(
 const categoryId = categorizedResponse.headers.get("x-fortune-id");
 assertFortuneId(categoryId, "category");
 assert.equal(categoryId.slice(0, category.length + 1), `${category}-`);
-const categorizedText = (await categorizedResponse.text()).trim();
+const categorizedRaw = await categorizedResponse.text();
+const categorizedText = categorizedRaw.trim();
 assert.ok(categorizedText, "category fortune is empty");
 const categorizedPinned = await request(
   `/?category=${encodeURIComponent(category)}&fortune=${encodeURIComponent(categoryId)}`,
 );
 assert.equal((await categorizedPinned.text()).trim(), categorizedText);
+assert.match(
+  categorizedPinned.headers.get("content-type") || "",
+  /^text\/plain\b/,
+  "pinned fortune content-type",
+);
+const jsonResponse = await request(
+  `/?format=json&locale=en&category=${encodeURIComponent(category)}&fortune=${encodeURIComponent(categoryId)}`,
+);
+assert.match(
+  jsonResponse.headers.get("content-type") || "",
+  /^application\/json\b/,
+  "json fortune content-type",
+);
+assert.equal(jsonResponse.headers.get("x-fortune-id"), categoryId);
+const jsonFortune = await jsonResponse.json();
+assert.equal(jsonFortune.id, categoryId);
+assert.equal(jsonFortune.fortune, categorizedRaw);
+assert.equal(jsonFortune.locale, "en");
+assert.equal(jsonFortune.category, category);
+assert.deepEqual(Object.keys(jsonFortune), [
+  "id",
+  "fortune",
+  "locale",
+  "category",
+]);
 
 await request("/?fortune=not-a-fortune", 400);
 await request("/?fortune=../etc-1", 400);

@@ -39,6 +39,12 @@ pub enum Action {
         database: String,
         index: usize,
     },
+    /// The same fortune as `Fortune`, rendered as one JSON object.
+    FortuneJson {
+        locale: String,
+        database: String,
+        index: usize,
+    },
     /// Render a 1200×1200 PNG. `fortune` is absent for the branded default card.
     OgImage(OgImage),
 }
@@ -73,6 +79,8 @@ struct FortuneQuery<'a> {
     locale: &'a str,
     category: &'a str,
     fortune: Option<&'a str>,
+    /// `format=json`. Absent or any other endpoint keeps the plain-text body.
+    json: bool,
 }
 
 const TEXT: &str = "text/plain; charset=utf-8";
@@ -156,6 +164,28 @@ pub fn with_fortune_id(mut reply: Reply, database: &str, index: usize) -> Reply 
     reply
 }
 
+#[derive(Serialize)]
+struct FortuneJsonBody<'a> {
+    id: &'a str,
+    fortune: &'a str,
+    locale: &'a str,
+    category: &'a str,
+}
+
+/// JSON body for `GET /?format=json`. `category` is the database the fortune
+/// was drawn from, the same name `?category=` accepts. The `x-fortune-id`
+/// header is still set, and the fortune text matches the plain-text body.
+pub fn fortune_json(locale: &str, database: &str, index: usize, fortune: &str) -> Reply {
+    let id = fortune_id(database, index);
+    let body = FortuneJsonBody {
+        id: &id,
+        fortune,
+        locale,
+        category: database,
+    };
+    with_fortune_id(json(&body), database, index)
+}
+
 fn canonical_index(index: &str) -> bool {
     let mut bytes = index.bytes();
     match (bytes.next(), index.len()) {
@@ -182,25 +212,28 @@ fn parse_query<'a>(
     manifest: &Manifest,
     query: Option<&'a str>,
 ) -> Result<FortuneQuery<'a>, &'static str> {
-    parse_query_with(manifest, query, false)
+    parse_query_with(manifest, query, false, false)
 }
 
 fn parse_query_with<'a>(
     manifest: &Manifest,
     query: Option<&'a str>,
     allow_fortune: bool,
+    allow_format: bool,
 ) -> Result<FortuneQuery<'a>, &'static str> {
     let Some(query) = query else {
         return Ok(FortuneQuery {
             locale: "en",
             category: "",
             fortune: None,
+            json: false,
         });
     };
 
     let mut locale = None;
     let mut category = None;
     let mut fortune = None;
+    let mut response_format = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
             return Err("Malformed query string.\n");
@@ -209,6 +242,7 @@ fn parse_query_with<'a>(
             "locale" if locale.replace(value).is_none() => {}
             "category" if category.replace(value).is_none() => {}
             "fortune" if allow_fortune && fortune.replace(value).is_none() => {}
+            "format" if allow_format && response_format.replace(value).is_none() => {}
             _ => return Err("Only one locale and category parameter are supported.\n"),
         }
     }
@@ -229,10 +263,17 @@ fn parse_query_with<'a>(
         }
     }
 
+    let json = match response_format {
+        None => false,
+        Some("json") => true,
+        Some(_) => return Err("Invalid format.\n"),
+    };
+
     Ok(FortuneQuery {
         locale,
         category,
         fortune,
+        json,
     })
 }
 
@@ -274,40 +315,61 @@ fn pinned_fortune(locale: &Locale, category: &str, id: &str) -> Action {
     }
 }
 
+fn apply_format(action: Action, json: bool) -> Action {
+    if !json {
+        return action;
+    }
+    match action {
+        Action::Fortune {
+            locale,
+            database,
+            index,
+        } => Action::FortuneJson {
+            locale,
+            database,
+            index,
+        },
+        other => other,
+    }
+}
+
 fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
-    let query = match parse_query_with(manifest, query, true) {
+    let query = match parse_query_with(manifest, query, true, true) {
         Ok(query) => query,
         Err(error) => return Action::Reply(text(400, error)),
     };
+    let json = query.json;
     let locale = find_locale(manifest, query.locale).expect("validated locale");
-    if let Some(id) = query.fortune {
-        return pinned_fortune(locale, query.category, id);
-    }
-    let picked = if query.category.is_empty() {
-        pick(
+    let action = if let Some(id) = query.fortune {
+        pinned_fortune(locale, query.category, id)
+    } else {
+        let picked = if query.category.is_empty() {
+            pick(
+                locale
+                    .databases
+                    .iter()
+                    .map(|(name, count)| (name.as_str(), *count)),
+                random,
+            )
+        } else if locale.categories.iter().any(|name| name == query.category) {
             locale
                 .databases
-                .iter()
-                .map(|(name, count)| (name.as_str(), *count)),
-            random,
-        )
-    } else if locale.categories.iter().any(|name| name == query.category) {
-        locale
-            .databases
-            .get_key_value(query.category)
-            .and_then(|(name, count)| pick(std::iter::once((name.as_str(), *count)), random))
-    } else {
-        return Action::Reply(text(404, "Fortune category not found.\n"));
-    };
+                .get_key_value(query.category)
+                .and_then(|(name, count)| pick(std::iter::once((name.as_str(), *count)), random))
+        } else {
+            return Action::Reply(text(404, "Fortune category not found.\n"));
+        };
 
-    match picked {
-        Some((database, index)) => Action::Fortune {
-            locale: locale.id.clone(),
-            database: database.to_string(),
-            index,
-        },
-        None => Action::Reply(text(503, "Fortune service unavailable.\n")),
-    }
+        match picked {
+            Some((database, index)) => Action::Fortune {
+                locale: locale.id.clone(),
+                database: database.to_string(),
+                index,
+            },
+            None => Action::Reply(text(503, "Fortune service unavailable.\n")),
+        }
+    };
+    apply_format(action, json)
 }
 
 pub fn handle(
@@ -397,7 +459,7 @@ fn og_image(manifest: &Manifest, query: Option<&str>) -> Result<OgImage, Reply> 
                 database, index, ..
             } => Some(OgFortune { database, index }),
             Action::Reply(reply) => return Err(reply),
-            Action::Cow(_) | Action::OgImage(_) => {
+            Action::Cow(_) | Action::OgImage(_) | Action::FortuneJson { .. } => {
                 return Err(text(500, "Failed to load fortune.\n"))
             }
         }
@@ -919,6 +981,8 @@ mod tests {
         for (path, query) in [
             ("/", None),
             ("/", Some("fortune=zippy-2")),
+            ("/", Some("format=json")),
+            ("/", Some("category=art&fortune=art-1&format=json")),
             ("/health", None),
             ("/locales", None),
             ("/og.png", None),
@@ -1028,6 +1092,10 @@ mod tests {
             reply_of(get("/og.png", Some("fortune=art-0&fortune=zippy-1"),)).body,
             "Only one locale, category, cow, and fortune parameter are supported.\n"
         );
+        assert_eq!(
+            reply_of(get("/og.png", Some("format=json"))).body,
+            "Only one locale, category, cow, and fortune parameter are supported.\n"
+        );
         assert_eq!(reply_of(get("/og.png", Some("category=nope"))).status, 404);
     }
 
@@ -1065,6 +1133,183 @@ mod tests {
                 .expect("fallback cow")
                 .cow,
             "default"
+        );
+    }
+
+    fn as_plain_fortune(action: Action) -> Action {
+        match action {
+            Action::FortuneJson {
+                locale,
+                database,
+                index,
+            } => Action::Fortune {
+                locale,
+                database,
+                index,
+            },
+            other => other,
+        }
+    }
+
+    #[test]
+    fn json_format_selects_the_same_fortune_as_plain_text() {
+        let cases = [
+            (None, Some("format=json"), 0.0),
+            (Some("locale=en"), Some("locale=en&format=json"), 0.4),
+            (
+                Some("category=art"),
+                Some("category=art&format=json"),
+                0.999,
+            ),
+            (
+                Some("fortune=zippy-2"),
+                Some("format=json&fortune=zippy-2"),
+                0.2,
+            ),
+            (
+                Some("locale=pt&fortune=brasil-3"),
+                Some("locale=pt&fortune=brasil-3&format=json"),
+                0.7,
+            ),
+            (
+                Some("category=art&fortune=art-1"),
+                Some("format=json&category=art&fortune=art-1"),
+                0.1,
+            ),
+            (Some("locale=pt"), Some("format=json&locale=pt"), 0.5),
+            (Some("category="), Some("category=&format=json"), 0.4),
+        ];
+        for (plain, formatted, random) in cases {
+            let plain_action = handle("GET", "/", plain, &manifest(), random);
+            let json_action = handle("GET", "/", formatted, &manifest(), random);
+            assert!(
+                matches!(plain_action, Action::Fortune { .. }),
+                "plain {plain:?} stayed text: {plain_action:?}"
+            );
+            assert!(
+                matches!(json_action, Action::FortuneJson { .. }),
+                "json {formatted:?}: {json_action:?}"
+            );
+            assert_eq!(
+                as_plain_fortune(json_action),
+                plain_action,
+                "{plain:?} vs {formatted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_fortune_body_matches_the_plain_text_and_keeps_the_id_header() {
+        let fortune = "Hello \"world\"\nOlá\n";
+        let plain = with_fortune_id(text(200, fortune), "off-color", 1);
+        let json_reply = fortune_json("en", "off-color", 1, fortune);
+
+        assert_eq!(plain.status, 200);
+        assert_eq!(plain.body, fortune);
+        assert!(plain
+            .headers
+            .iter()
+            .any(|(name, value)| { *name == "content-type" && value.starts_with("text/plain") }));
+        assert!(plain
+            .headers
+            .contains(&("x-fortune-id", "off-color-1".to_string())));
+
+        assert_eq!(json_reply.status, 200);
+        assert!(json_reply
+            .headers
+            .contains(&("content-type", JSON.to_string())));
+        assert!(json_reply
+            .headers
+            .contains(&("cache-control", "no-store".to_string())));
+        assert!(json_reply
+            .headers
+            .contains(&("x-content-type-options", "nosniff".to_string())));
+        assert!(json_reply
+            .headers
+            .contains(&("x-fortune-id", "off-color-1".to_string())));
+        assert!(json_reply.body.ends_with('\n'));
+
+        let body = json_reply.body.trim_end();
+        let id_at = body.find("\"id\"").unwrap();
+        let fortune_at = body.find("\"fortune\"").unwrap();
+        let locale_at = body.find("\"locale\"").unwrap();
+        let category_at = body.find("\"category\"").unwrap();
+        assert!(id_at < fortune_at && fortune_at < locale_at && locale_at < category_at);
+        let parsed: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(parsed.as_object().unwrap().len(), 4);
+        assert_eq!(parsed["id"], "off-color-1");
+        assert_eq!(parsed["fortune"], fortune);
+        assert_eq!(parsed["locale"], "en");
+        assert_eq!(parsed["category"], "off-color");
+    }
+
+    #[test]
+    fn invalid_format_is_rejected_and_errors_stay_plain_text() {
+        for query in [
+            "format=",
+            "format=text",
+            "format=JSON",
+            "format=plain",
+            "format=json ",
+            "format=xml",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Invalid format.\n"),
+                "{query}"
+            );
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        for (query, status, body) in [
+            (
+                "format=json&format=json",
+                400,
+                "Only one locale and category parameter are supported.\n",
+            ),
+            (
+                "format=json&locale=en&locale=pt",
+                400,
+                "Only one locale and category parameter are supported.\n",
+            ),
+            ("format=json&locale=fr", 400, "Unsupported locale.\n"),
+            ("format=json&fortune=art-99", 404, "Fortune not found.\n"),
+            (
+                "format=json&category=nope",
+                404,
+                "Fortune category not found.\n",
+            ),
+            ("format=text&category=../etc", 400, "Invalid category.\n"),
+            (
+                "format=json&category=art&fortune=zippy-0",
+                404,
+                "Fortune not found.\n",
+            ),
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (status, body),
+                "{query}"
+            );
+            assert!(
+                reply.headers.iter().any(|(name, value)| {
+                    *name == "content-type" && value.starts_with("text/plain")
+                }),
+                "{query}"
+            );
+        }
+
+        assert_eq!(
+            reply_of(get("/categories", Some("format=json"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/categories", Some("locale=pt&format=json"))).body,
+            "Only one locale and category parameter are supported.\n"
         );
     }
 }

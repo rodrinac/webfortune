@@ -35,6 +35,7 @@ Open the Vite URL. The UI defaults to `/api`, which Vite forwards to the local W
 | --- | --- |
 | `GET /` | Random fortune as UTF-8 plain text. The response includes `x-fortune-id`, for example `computers-42`. |
 | `GET /?fortune=computers-42` | That exact fortune. Invalid ids are 400; an unknown database or out-of-range index is 404. |
+| `GET /?format=json` | The same fortune as one JSON object: `{"id":"computers-42","fortune":"...","locale":"en","category":"computers"}`. `Content-Type` is `application/json; charset=utf-8`, and `x-fortune-id` is still set. |
 | `GET /og.png?locale=en&fortune=computers-42&cow=tux` | 1200×1200 PNG of that cow saying that fortune. Omit `fortune` for the branded card. |
 | `GET /?category=computers` | Fortune from an installed category |
 | `GET /categories` | JSON array of installed category names |
@@ -43,6 +44,8 @@ Open the Vite URL. The UI defaults to `/api`, which Vite forwards to the local W
 | `GET /health` | `{"status":"ok","version":"<x.y.z>"}` when fortune data is available. `version` is the release the Worker was built from (`package.json`, no leading `v`). |
 
 A fortune id is `<database>-<index>`. The index is a decimal with no leading zeros. Database names use the same resource-name rules as categories and may contain hyphens, so the id is split on the last hyphen. `locale` and `category` still work alongside `fortune`; when a category is set, the id's database must be that category.
+
+`format=json` combines with `locale`, `category`, and `fortune` and selects the same fortune as the plain-text response. In the object, `fortune` is that plain-text body and `category` is the database it came from. Leave `format` off to keep the plain-text body. Any other `format` value is 400, and error responses stay plain text.
 
 The page stores the served id in a `fortune` query parameter, next to `locale`, `cow`, and `category`. The copy button includes that URL, so opening it shows the same fortune. Refresh and Space request a new random fortune and replace the id. An invalid or unknown id falls back to a random fortune.
 
