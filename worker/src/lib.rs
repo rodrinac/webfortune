@@ -55,6 +55,23 @@ mod runtime {
         Some(fortunes)
     }
 
+    async fn fortune_reply(
+        assets: &Fetcher,
+        locale: &str,
+        name: &str,
+        index: usize,
+        json: bool,
+    ) -> Reply {
+        match database(assets, locale, name)
+            .await
+            .and_then(|fortunes| fortunes.get(index).cloned())
+        {
+            Some(fortune) if json => api::fortune_json(locale, name, index, &fortune),
+            Some(fortune) => api::with_fortune_id(api::text(200, fortune), name, index),
+            None => api::text(503, "Failed to load fortune.\n"),
+        }
+    }
+
     async fn resolve(assets: &Fetcher, action: Action) -> Reply {
         match action {
             Action::Reply(reply) => reply,
@@ -66,13 +83,12 @@ mod runtime {
                 locale,
                 database: name,
                 index,
-            } => match database(assets, &locale, &name)
-                .await
-                .and_then(|fortunes| fortunes.get(index).cloned())
-            {
-                Some(fortune) => api::with_fortune_id(api::text(200, fortune), &name, index),
-                None => api::text(503, "Failed to load fortune.\n"),
-            },
+            } => fortune_reply(assets, &locale, &name, index, false).await,
+            Action::FortuneJson {
+                locale,
+                database: name,
+                index,
+            } => fortune_reply(assets, &locale, &name, index, true).await,
             // Preview images are rendered before resolve; this keeps the match
             // exhaustive if a caller forwards the action.
             Action::OgImage(_) => api::text(500, "Failed to render preview.\n"),
