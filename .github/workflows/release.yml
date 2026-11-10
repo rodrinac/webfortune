@@ -7,8 +7,8 @@ on:
       - "package.json"
   workflow_dispatch:
 
-permissions:
-  contents: write
+# No workflow-wide token. The release job opts into contents: write.
+permissions: {}
 
 concurrency:
   group: release-${{ github.sha }}
@@ -17,12 +17,17 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # gh release create uses GITHUB_TOKEN. The tag itself is created with
+    # VERSION_BUMP_TOKEN via the API, so the checkout does not keep credentials.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Read package version
         id: version
