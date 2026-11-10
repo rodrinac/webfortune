@@ -11,12 +11,17 @@ on:
 permissions:
   actions: read
   contents: read
-  security-events: write
 
 jobs:
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
+    # Job permissions replace the workflow default. security-events: write is
+    # only needed here, for the CodeQL upload.
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     env:
       # Skip only the push that lands the bump commit; analysis ran on earlier main pushes.
       SKIP_VALIDATION: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): v') }}"
@@ -29,6 +34,8 @@ jobs:
       - name: Checkout repository
         if: env.SKIP_VALIDATION != 'true'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
         if: env.SKIP_VALIDATION != 'true'

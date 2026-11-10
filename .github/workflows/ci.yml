@@ -28,6 +28,8 @@ jobs:
       deploy_command: ${{ steps.out.outputs.deploy_command }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
@@ -87,6 +89,8 @@ jobs:
 
       - if: needs.changes.outputs.web == 'true'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - if: needs.changes.outputs.web == 'true'
         uses: actions/setup-node@v7
@@ -131,6 +135,8 @@ jobs:
 
       - if: needs.changes.outputs.worker == 'true'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - if: needs.changes.outputs.worker == 'true'
         uses: actions/setup-node@v7
@@ -193,6 +199,8 @@ jobs:
       WRANGLER_SEND_METRICS: "false"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
