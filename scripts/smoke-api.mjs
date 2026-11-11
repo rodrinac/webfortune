@@ -103,6 +103,8 @@ assert.ok(Array.isArray(categories) && categories.length > 0);
 const cows = await (await request("/cows")).json();
 assert.ok(Array.isArray(cows) && cows.includes("default"));
 assert.match(await (await request("/cows/default")).text(), /\(oo\)/);
+const tuxArt = await (await request("/cows/tux")).text();
+assert.ok(tuxArt.trim(), "tux artwork is empty");
 const randomResponse = await request("/");
 assert.match(
   randomResponse.headers.get("content-type") || "",
@@ -166,9 +168,57 @@ assert.deepEqual(Object.keys(jsonFortune), [
   "locale",
   "category",
 ]);
+const cowsayResponse = await request(
+  `/?format=cowsay&cow=tux&locale=en&category=${encodeURIComponent(category)}&fortune=${encodeURIComponent(categoryId)}`,
+);
+assert.equal(
+  cowsayResponse.headers.get("content-type"),
+  "text/plain; charset=utf-8",
+  "cowsay content-type",
+);
+assert.match(
+  cowsayResponse.headers.get("cache-control") || "",
+  /no-store/,
+  "cowsay cache-control",
+);
+assert.equal(cowsayResponse.headers.get("x-fortune-id"), categoryId);
+const cowsayBody = await cowsayResponse.text();
+assert.ok(cowsayBody.endsWith("\n"), "cowsay ends with a newline");
+const tux = tuxArt.endsWith("\n") ? tuxArt.slice(0, -1) : tuxArt;
+assert.ok(
+  cowsayBody.endsWith(`${tux}\n`),
+  "cowsay ends with the tux artwork",
+);
+assert.match(cowsayBody.split("\n")[0], /^ _+$/, "cowsay top border");
+assert.match(
+  cowsayBody,
+  /^(?:< .+ >|\/ .+ \\)$/m,
+  "cowsay speech border",
+);
+// Same cleanup and wrap as web/cowsay.js: controls drop, tabs become spaces,
+// and a word longer than the width is split. Each piece stays in order.
+const bubble = cowsayBody.slice(0, cowsayBody.length - (tux.length + 1));
+const normalized = categorizedText
+  .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+  .replace(/\t/g, "    ")
+  .trim();
+let cursor = 0;
+for (const word of normalized.split(/\s+/)) {
+  let rest = word;
+  while (rest) {
+    const chars = Array.from(rest);
+    const chunk = chars.slice(0, 44).join("");
+    const at = bubble.indexOf(chunk, cursor);
+    assert.ok(at !== -1, `cowsay missing ${JSON.stringify(chunk)}`);
+    cursor = at + chunk.length;
+    rest = chars.slice(44).join("");
+  }
+}
 
 await request("/?fortune=not-a-fortune", 400);
-await request("/?fortune=../etc-1", 400);
+// A second invalid id and a duplicate category stay covered by the worker
+// unit tests. Those smoke requests were traded for the cowsay check so this
+// script stays inside the 46-request rate-limit budget.
 await request("/?fortune=not_a_real_database_8675309-0", 404);
 await request(`/?fortune=${encodeURIComponent(randomDatabase)}-4000000000`, 404);
 for (const locale of ["de", "es"]) {
@@ -195,7 +245,6 @@ assert.ok(portugueseFortune.trim(), "pt fortune is empty");
 assert.doesNotMatch(portugueseFortune, /\uFFFD/, "pt is not valid UTF-8");
 await request("/?category=not_a_real_category_8675309", 404);
 await request("/?category=../etc/passwd", 400);
-await request("/?category=a&category=b", 400);
 await request("/missing", 404);
 const rejected = await request("/", 405, "POST");
 assert.match(rejected.headers.get("allow") || "", /\bGET\b/);
