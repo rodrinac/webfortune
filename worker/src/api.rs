@@ -45,6 +45,13 @@ pub enum Action {
         database: String,
         index: usize,
     },
+    /// The same fortune as `Fortune`, drawn as a cowsay bubble plus cow art.
+    FortuneCowsay {
+        locale: String,
+        database: String,
+        index: usize,
+        cow: String,
+    },
     /// Render a 1200×1200 PNG. `fortune` is absent for the branded default card.
     OgImage(OgImage),
 }
@@ -74,13 +81,20 @@ pub struct ShareTarget {
     pub page_query: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResponseFormat<'a> {
+    Text,
+    Json,
+    /// `cow` is the installed cow name, or `default` when the parameter is omitted.
+    Cowsay(&'a str),
+}
+
 struct FortuneQuery<'a> {
     locale: &'a str,
     category: &'a str,
     fortune: Option<&'a str>,
-    /// `format=json`. Absent or any other endpoint keeps the plain-text body.
-    json: bool,
+    /// Plain text unless this is `GET /` and `format` names a supported value.
+    format: ResponseFormat<'a>,
 }
 
 const TEXT: &str = "text/plain; charset=utf-8";
@@ -172,6 +186,16 @@ struct FortuneJsonBody<'a> {
     category: &'a str,
 }
 
+/// Plain-text body for `GET /?format=cowsay`. The bubble matches `web/cowsay.js`
+/// and the body ends with a newline. The `x-fortune-id` header is still set.
+pub fn fortune_cowsay(database: &str, index: usize, fortune: &str, cow_art: &str) -> Reply {
+    let mut body = crate::cowsay::render(fortune, crate::cowsay::WRAP_WIDTH, cow_art);
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    with_fortune_id(text(200, body), database, index)
+}
+
 /// JSON body for `GET /?format=json`. `category` is the database the fortune
 /// was drawn from, the same name `?category=` accepts. The `x-fortune-id`
 /// header is still set, and the fortune text matches the plain-text body.
@@ -226,14 +250,19 @@ fn parse_query_with<'a>(
             locale: "en",
             category: "",
             fortune: None,
-            json: false,
+            format: ResponseFormat::Text,
         });
     };
 
+    // `cow` is part of the fortune query only for a single `format=cowsay`.
+    // Every other request still rejects it while scanning parameters, so the
+    // error stays the unsupported-parameter response.
+    let allow_cow = allow_format && cowsay_format(query);
     let mut locale = None;
     let mut category = None;
     let mut fortune = None;
     let mut response_format = None;
+    let mut cow = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
             return Err("Malformed query string.\n");
@@ -243,6 +272,7 @@ fn parse_query_with<'a>(
             "category" if category.replace(value).is_none() => {}
             "fortune" if allow_fortune && fortune.replace(value).is_none() => {}
             "format" if allow_format && response_format.replace(value).is_none() => {}
+            "cow" if allow_cow && cow.replace(value).is_none() => {}
             _ => return Err("Only one locale and category parameter are supported.\n"),
         }
     }
@@ -263,9 +293,16 @@ fn parse_query_with<'a>(
         }
     }
 
-    let json = match response_format {
-        None => false,
-        Some("json") => true,
+    let format = match response_format {
+        None => ResponseFormat::Text,
+        Some("json") => ResponseFormat::Json,
+        Some("cowsay") => {
+            let name = cow.unwrap_or("default");
+            if !valid_resource_name(name) {
+                return Err("Invalid cow.\n");
+            }
+            ResponseFormat::Cowsay(name)
+        }
         Some(_) => return Err("Invalid format.\n"),
     };
 
@@ -273,8 +310,22 @@ fn parse_query_with<'a>(
         locale,
         category,
         fortune,
-        json,
+        format,
     })
+}
+
+/// True when the query has one `format=cowsay` parameter and no second `format`.
+fn cowsay_format(query: &str) -> bool {
+    let mut format = None;
+    for parameter in query.split('&') {
+        let Some((name, value)) = parameter.split_once('=') else {
+            continue;
+        };
+        if name == "format" && format.replace(value).is_some() {
+            return false;
+        }
+    }
+    format == Some("cowsay")
 }
 
 fn find_locale<'a>(manifest: &'a Manifest, id: &str) -> Option<&'a Locale> {
@@ -315,21 +366,35 @@ fn pinned_fortune(locale: &Locale, category: &str, id: &str) -> Action {
     }
 }
 
-fn apply_format(action: Action, json: bool) -> Action {
-    if !json {
-        return action;
-    }
-    match action {
-        Action::Fortune {
-            locale,
-            database,
-            index,
-        } => Action::FortuneJson {
+fn apply_format(action: Action, format: ResponseFormat<'_>) -> Action {
+    match (format, action) {
+        (ResponseFormat::Text, action) => action,
+        (
+            ResponseFormat::Json,
+            Action::Fortune {
+                locale,
+                database,
+                index,
+            },
+        ) => Action::FortuneJson {
             locale,
             database,
             index,
         },
-        other => other,
+        (
+            ResponseFormat::Cowsay(cow),
+            Action::Fortune {
+                locale,
+                database,
+                index,
+            },
+        ) => Action::FortuneCowsay {
+            locale,
+            database,
+            index,
+            cow: cow.to_string(),
+        },
+        (_, action) => action,
     }
 }
 
@@ -338,7 +403,11 @@ fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
         Ok(query) => query,
         Err(error) => return Action::Reply(text(400, error)),
     };
-    let json = query.json;
+    if let ResponseFormat::Cowsay(cow) = query.format {
+        if !manifest.cows.iter().any(|name| name == cow) {
+            return Action::Reply(text(404, "Cow not found.\n"));
+        }
+    }
     let locale = find_locale(manifest, query.locale).expect("validated locale");
     let action = if let Some(id) = query.fortune {
         pinned_fortune(locale, query.category, id)
@@ -369,7 +438,7 @@ fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
             None => Action::Reply(text(503, "Fortune service unavailable.\n")),
         }
     };
-    apply_format(action, json)
+    apply_format(action, query.format)
 }
 
 pub fn handle(
@@ -459,9 +528,10 @@ fn og_image(manifest: &Manifest, query: Option<&str>) -> Result<OgImage, Reply> 
                 database, index, ..
             } => Some(OgFortune { database, index }),
             Action::Reply(reply) => return Err(reply),
-            Action::Cow(_) | Action::OgImage(_) | Action::FortuneJson { .. } => {
-                return Err(text(500, "Failed to load fortune.\n"))
-            }
+            Action::Cow(_)
+            | Action::OgImage(_)
+            | Action::FortuneJson { .. }
+            | Action::FortuneCowsay { .. } => return Err(text(500, "Failed to load fortune.\n")),
         }
     } else if !query.category.is_empty() {
         let locale = find_locale(manifest, query.locale).expect("validated locale");
@@ -983,6 +1053,14 @@ mod tests {
             ("/", Some("fortune=zippy-2")),
             ("/", Some("format=json")),
             ("/", Some("category=art&fortune=art-1&format=json")),
+            ("/", Some("format=cowsay")),
+            ("/", Some("format=cowsay&cow=tux&fortune=art-1")),
+            (
+                "/",
+                Some("locale=pt&category=art&format=cowsay&cow=default"),
+            ),
+            ("/", Some("format=cowsay&cow=moose")),
+            ("/", Some("format=cowsay&cow=../etc")),
             ("/health", None),
             ("/locales", None),
             ("/og.png", None),
@@ -1142,6 +1220,12 @@ mod tests {
                 locale,
                 database,
                 index,
+            }
+            | Action::FortuneCowsay {
+                locale,
+                database,
+                index,
+                ..
             } => Action::Fortune {
                 locale,
                 database,
@@ -1251,6 +1335,8 @@ mod tests {
             "format=JSON",
             "format=plain",
             "format=json ",
+            "format=cowsay ",
+            "format=COWSAY",
             "format=xml",
         ] {
             let reply = reply_of(get("/", Some(query)));
@@ -1308,8 +1394,271 @@ mod tests {
             "Only one locale and category parameter are supported.\n"
         );
         assert_eq!(
+            reply_of(get("/categories", Some("format=cowsay"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("format=cowsay&cow=tux"))).body,
+            "Only one locale, category, cow, and fortune parameter are supported.\n"
+        );
+        assert_eq!(
             reply_of(get("/categories", Some("locale=pt&format=json"))).body,
             "Only one locale and category parameter are supported.\n"
         );
+    }
+
+    #[test]
+    fn cowsay_format_selects_the_same_fortune_as_plain_text() {
+        let cases = [
+            (None, "format=cowsay", "default", 0.0),
+            (
+                Some("locale=en"),
+                "locale=en&format=cowsay&cow=default",
+                "default",
+                0.4,
+            ),
+            (
+                Some("category=art"),
+                "category=art&format=cowsay&cow=tux",
+                "tux",
+                0.999,
+            ),
+            (
+                Some("fortune=zippy-2"),
+                "cow=tux&format=cowsay&fortune=zippy-2",
+                "tux",
+                0.2,
+            ),
+            (
+                Some("locale=pt&fortune=brasil-3"),
+                "locale=pt&fortune=brasil-3&format=cowsay",
+                "default",
+                0.7,
+            ),
+            (
+                Some("category=art&fortune=art-1"),
+                "format=cowsay&cow=tux&category=art&fortune=art-1",
+                "tux",
+                0.1,
+            ),
+            (
+                Some("locale=pt"),
+                "format=cowsay&locale=pt&cow=tux",
+                "tux",
+                0.5,
+            ),
+            (Some("category="), "category=&format=cowsay", "default", 0.4),
+        ];
+        for (plain, formatted, cow, random) in cases {
+            let plain_action = handle("GET", "/", plain, &manifest(), random);
+            let cowsay_action = handle("GET", "/", Some(formatted), &manifest(), random);
+            assert!(
+                matches!(plain_action, Action::Fortune { .. }),
+                "plain {plain:?} stayed text: {plain_action:?}"
+            );
+            match cowsay_action {
+                Action::FortuneCowsay {
+                    cow: chosen,
+                    locale,
+                    database,
+                    index,
+                } => {
+                    assert_eq!(chosen, cow, "{formatted}");
+                    assert_eq!(
+                        Action::Fortune {
+                            locale,
+                            database,
+                            index,
+                        },
+                        plain_action,
+                        "{plain:?} vs {formatted}"
+                    );
+                }
+                other => panic!("cowsay {formatted}: {other:?}"),
+            }
+            assert_eq!(
+                handle("HEAD", "/", Some(formatted), &manifest(), random),
+                handle("GET", "/", Some(formatted), &manifest(), random),
+                "HEAD {formatted}"
+            );
+        }
+    }
+
+    #[test]
+    fn cowsay_rejects_invalid_and_unknown_cows_and_ignores_cow_otherwise() {
+        for query in [
+            "format=cowsay&cow=../etc",
+            "format=cowsay&cow=",
+            "format=cowsay&cow=a%20b",
+            "format=cowsay&cow=a/b",
+            "format=cowsay&cow=has space",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Invalid cow.\n"),
+                "{query}"
+            );
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        for query in [
+            "format=cowsay&cow=moose",
+            "format=cowsay&cow=..",
+            "cow=moose&format=cowsay",
+            "format=cowsay&cow=moose&fortune=art-99",
+            "format=cowsay&cow=moose&category=nope",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (404, "Cow not found.\n"),
+                "{query}"
+            );
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        for query in [
+            "cow=tux",
+            "format=json&cow=tux",
+            "cow=../etc",
+            "format=xml&cow=tux",
+            "locale=fr&cow=tux",
+            "cow=tux&locale",
+            "format=cowsay&cow=tux&cow=default",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (
+                    400,
+                    "Only one locale and category parameter are supported.\n"
+                ),
+                "{query}"
+            );
+        }
+
+        for (query, status, body) in [
+            ("format=cowsay&locale=fr", 400, "Unsupported locale.\n"),
+            ("format=cowsay&fortune=art-99", 404, "Fortune not found.\n"),
+            (
+                "format=cowsay&category=nope",
+                404,
+                "Fortune category not found.\n",
+            ),
+            ("format=cowsay&category=../etc", 400, "Invalid category.\n"),
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (status, body),
+                "{query}"
+            );
+            assert!(
+                reply.headers.iter().any(|(name, value)| {
+                    *name == "content-type" && value.starts_with("text/plain")
+                }),
+                "{query}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_default_cow_is_not_found_for_cowsay() {
+        let manifest = serde_json::from_str(
+            r#"{
+              "locales": [{
+                "id": "en", "name": "English", "categories": ["art"],
+                "databases": { "art": 2 }
+              }],
+              "cows": ["tux"]
+            }"#,
+        )
+        .unwrap();
+        let missing = reply_of(handle("GET", "/", Some("format=cowsay"), &manifest, 0.0));
+        assert_eq!(
+            (missing.status, missing.body.as_str()),
+            (404, "Cow not found.\n")
+        );
+        match handle(
+            "GET",
+            "/",
+            Some("format=cowsay&cow=tux&fortune=art-1"),
+            &manifest,
+            0.9,
+        ) {
+            Action::FortuneCowsay {
+                cow,
+                database,
+                index,
+                ..
+            } => {
+                assert_eq!(cow, "tux");
+                assert_eq!(database, "art");
+                assert_eq!(index, 1);
+            }
+            other => panic!("expected tux, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cowsay_body_wraps_multiline_fortunes_and_keeps_the_id_header() {
+        let fortune = "line one\nline two is longer\nshort\n";
+        let art = "   \\\n    \\ tux";
+        let reply = fortune_cowsay("off-color", 1, fortune, art);
+        assert_eq!(reply.status, 200);
+        assert!(reply.headers.contains(&("content-type", TEXT.to_string())));
+        assert!(reply
+            .headers
+            .contains(&("cache-control", "no-store".to_string())));
+        assert!(reply
+            .headers
+            .contains(&("x-content-type-options", "nosniff".to_string())));
+        assert!(reply
+            .headers
+            .contains(&("x-fortune-id", "off-color-1".to_string())));
+        assert_eq!(
+            reply.body,
+            [
+                " ____________________",
+                "/ line one           \\",
+                "| line two is longer |",
+                "\\ short              /",
+                " --------------------",
+                "   \\",
+                "    \\ tux",
+                "",
+            ]
+            .join("\n")
+        );
+        assert!(reply.body.ends_with('\n'));
+        assert!(!reply.body.contains("&lt;"));
+
+        let long = "The quick brown fox jumps over the lazy dog again and again.\n";
+        let wrapped = fortune_cowsay("art", 0, long, "COW");
+        assert!(wrapped
+            .headers
+            .contains(&("x-fortune-id", "art-0".to_string())));
+        assert_eq!(
+            wrapped.body,
+            [
+                " _____________________________________________",
+                "/ The quick brown fox jumps over the lazy dog \\",
+                "\\ again and again.                            /",
+                " ---------------------------------------------",
+                "COW",
+                "",
+            ]
+            .join("\n")
+        );
+
+        let markup = fortune_cowsay("art", 2, "<script>alert(\"1\")</script>\n", "X");
+        assert!(markup.body.contains("<script>alert(\"1\")</script>"));
+        assert!(!markup.body.contains("&lt;"));
+        assert!(markup.body.ends_with("\nX\n"));
     }
 }

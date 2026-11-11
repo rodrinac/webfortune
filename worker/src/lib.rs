@@ -1,5 +1,6 @@
 pub mod api;
 mod card;
+mod cowsay;
 mod preview;
 mod security;
 
@@ -89,6 +90,24 @@ mod runtime {
                 database: name,
                 index,
             } => fortune_reply(assets, &locale, &name, index, true).await,
+            Action::FortuneCowsay {
+                locale,
+                database: name,
+                index,
+                cow,
+            } => {
+                // Same asset path as `/cows/{name}` and `render_og`.
+                let Some(art) = asset(assets, &format!("cows/{cow}.txt")).await else {
+                    return api::text(503, "Failed to load cows.\n");
+                };
+                match database(assets, &locale, &name)
+                    .await
+                    .and_then(|fortunes| fortunes.get(index).cloned())
+                {
+                    Some(fortune) => api::fortune_cowsay(&name, index, &fortune, &art),
+                    None => api::text(503, "Failed to load fortune.\n"),
+                }
+            }
             // Preview images are rendered before resolve; this keeps the match
             // exhaustive if a caller forwards the action.
             Action::OgImage(_) => api::text(500, "Failed to render preview.\n"),
