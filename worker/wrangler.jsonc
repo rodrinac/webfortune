@@ -30,11 +30,17 @@
     "run_worker_first": true
   },
   // Replaces the API Gateway throttle, but per client IP instead of global.
+  // OG_RATE_LIMITER only counts /og.png cache misses (PNG rasterization).
   "ratelimits": [
     {
       "name": "RATE_LIMITER",
       "namespace_id": "1001",
       "simple": { "limit": 50, "period": 10 }
+    },
+    {
+      "name": "OG_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 5, "period": 10 }
     }
   ],
   "vars": {
