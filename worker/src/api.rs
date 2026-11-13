@@ -69,6 +69,22 @@ pub struct OgFortune {
     pub index: usize,
 }
 
+/// Canonical Cache API key for a validated `/og.png` request.
+///
+/// Built from the resolved `OgImage` fields (not the raw query string), so
+/// parameter order and omitted defaults that parse to the same image share one
+/// entry. Unknown query parameters are rejected before this runs.
+pub fn og_cache_key(image: &OgImage) -> String {
+    let mut query = format!("locale={}&cow={}", image.locale, image.cow);
+    if let Some(fortune) = &image.fortune {
+        query.push_str(&format!(
+            "&database={}&index={}",
+            fortune.database, fortune.index
+        ));
+    }
+    format!("https://og.cache.webfortune.invalid/og.png?{query}")
+}
+
 /// A permalink a crawler can preview. Absent when the query does not name a
 /// fortune the page would actually show.
 #[derive(Debug, PartialEq)]
@@ -1175,6 +1191,49 @@ mod tests {
             "Only one locale, category, cow, and fortune parameter are supported.\n"
         );
         assert_eq!(reply_of(get("/og.png", Some("category=nope"))).status, 404);
+    }
+
+    #[test]
+    fn og_cache_keys_follow_validated_fields_not_query_order() {
+        let branded = OgImage {
+            locale: "en".to_string(),
+            cow: "default".to_string(),
+            fortune: None,
+        };
+        assert_eq!(
+            og_cache_key(&branded),
+            "https://og.cache.webfortune.invalid/og.png?locale=en&cow=default"
+        );
+
+        let pinned = match get("/og.png", Some("cow=tux&fortune=brasil-3&locale=pt")) {
+            Action::OgImage(image) => image,
+            other => panic!("expected og image, got {other:?}"),
+        };
+        let reordered = match get("/og.png", Some("locale=pt&cow=tux&fortune=brasil-3")) {
+            Action::OgImage(image) => image,
+            other => panic!("expected og image, got {other:?}"),
+        };
+        assert_eq!(pinned, reordered);
+        assert_eq!(
+            og_cache_key(&pinned),
+            "https://og.cache.webfortune.invalid/og.png?locale=pt&cow=tux&database=brasil&index=3"
+        );
+        assert_eq!(og_cache_key(&pinned), og_cache_key(&reordered));
+
+        // category alone does not change the branded card for a locale/cow.
+        let with_category = match get("/og.png", Some("category=art&cow=tux")) {
+            Action::OgImage(image) => image,
+            other => panic!("expected og image, got {other:?}"),
+        };
+        let without_category = match get("/og.png", Some("cow=tux")) {
+            Action::OgImage(image) => image,
+            other => panic!("expected og image, got {other:?}"),
+        };
+        assert_eq!(with_category, without_category);
+        assert_eq!(
+            og_cache_key(&with_category),
+            og_cache_key(&without_category)
+        );
     }
 
     #[test]

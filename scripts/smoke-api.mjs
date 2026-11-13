@@ -58,11 +58,12 @@ function assertFortuneId(id, label) {
   return database;
 }
 
-// worker/wrangler.jsonc allows 50 requests per 10 seconds per IP. CI curls
-// /health once before this script. The manual deploy workflow curls it twice
-// in that window. The tag workflow adds one fetch when /health reports the
-// release version. Those callers add at most two probes. Stay under the
-// remainder so those probes cannot turn a later check into a 429.
+// worker/wrangler.jsonc allows 50 requests per 10 seconds per IP on the shared
+// limiter. /og.png cache misses also spend a tighter 5 / 10 s OG budget; hits
+// do not. CI curls /health once before this script. The manual deploy workflow
+// curls it twice in that window. The tag workflow adds one fetch when /health
+// reports the release version. Those callers add at most two probes. Stay under
+// the remainder so those probes cannot turn a later check into a 429.
 const SMOKE_REQUEST_BUDGET = 46;
 let requests = 0;
 
@@ -250,7 +251,16 @@ const rejected = await request("/", 405, "POST");
 assert.match(rejected.headers.get("allow") || "", /\bGET\b/);
 assert.match(rejected.headers.get("allow") || "", /\bHEAD\b/);
 assert.equal(await rejected.text(), "Method not allowed.\n");
-const brandedLength = await png("/og.png");
+const branded = await request("/og.png");
+assert.match(branded.headers.get("content-type") || "", /^image\/png\b/);
+assert.match(branded.headers.get("cache-control") || "", /max-age=/);
+const brandedBytes = Buffer.from(await branded.arrayBuffer());
+assertPng(brandedBytes, "/og.png");
+const brandedLength = brandedBytes.length;
+const brandedCache = branded.headers.get("x-og-cache");
+if (brandedCache !== null) {
+  assert.match(brandedCache, /^(?:hit|miss)$/, "/og.png x-og-cache");
+}
 await png(`/og.png?fortune=${encodeURIComponent(randomId)}`);
 await png(
   `/og.png?locale=pt&fortune=${encodeURIComponent(portugueseId)}`,
@@ -277,15 +287,25 @@ if (origin) {
   );
 }
 assertContentLengthIfPresent(headFortune, null, "HEAD /");
-const headImage = await request("/og.png", 200, "HEAD");
+// Reordered defaults resolve to the same cache key as /og.png. When the Worker
+// reports hit/miss, HEAD and Range must be hits so card::render_* is skipped.
+const headImage = await request("/og.png?cow=default&locale=en", 200, "HEAD");
 assert.match(headImage.headers.get("content-type") || "", /^image\/png\b/);
 assert.match(headImage.headers.get("cache-control") || "", /max-age=/);
 assertContentLengthIfPresent(headImage, brandedLength, "HEAD /og.png");
-const ranged = await request("/og.png", 200, "GET", { Range: "bytes=0-524287" });
+if (brandedCache !== null) {
+  assert.equal(headImage.headers.get("x-og-cache"), "hit", "HEAD /og.png cache");
+}
+const ranged = await request("/og.png?locale=en&cow=default", 200, "GET", {
+  Range: "bytes=0-524287",
+});
 assert.equal(ranged.headers.get("content-range"), null);
 const rangedBytes = Buffer.from(await ranged.arrayBuffer());
 assertPng(rangedBytes, "Range /og.png");
 assert.equal(rangedBytes.length, brandedLength);
+if (brandedCache !== null) {
+  assert.equal(ranged.headers.get("x-og-cache"), "hit", "Range /og.png cache");
+}
 assert.ok(
   requests <= SMOKE_REQUEST_BUDGET,
   `smoke sent ${requests} requests; budget is ${SMOKE_REQUEST_BUDGET} so health probes fit in the 50/10s limit`,

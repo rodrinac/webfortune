@@ -11,7 +11,7 @@ mod runtime {
     use std::rc::Rc;
 
     use worker::{
-        event, js_sys, web_sys, Context, Env, Error, Fetch, Fetcher, Request, Response,
+        event, js_sys, web_sys, Cache, Context, Env, Error, Fetch, Fetcher, Request, Response,
         ResponseBody, Result,
     };
 
@@ -115,8 +115,8 @@ mod runtime {
     }
 
     // Fail closed: missing identity or limiter errors must not bypass the quota.
-    async fn within_rate_limit(env: &Env, request: &Request) -> bool {
-        let Ok(limiter) = env.rate_limiter("RATE_LIMITER") else {
+    async fn within_rate_limit(env: &Env, request: &Request, binding: &str) -> bool {
+        let Ok(limiter) = env.rate_limiter(binding) else {
             return false;
         };
         let Some(client) = request
@@ -146,7 +146,9 @@ mod runtime {
         let method = request.method().to_string();
         let assets = env.assets("ASSETS")?;
 
-        let reply = if method != "OPTIONS" && !within_rate_limit(&env, &request).await {
+        let reply = if method != "OPTIONS"
+            && !within_rate_limit(&env, &request, "RATE_LIMITER").await
+        {
             api::text(429, "Too many requests.\n")
         } else {
             match manifest(&assets).await {
@@ -159,10 +161,9 @@ mod runtime {
                         js_sys::Math::random(),
                     );
                     match action {
-                        Action::OgImage(image) => match render_og(&assets, &image).await {
-                            Ok(png) => return png_response(png, &request, &env, &method),
-                            Err(reply) => reply,
-                        },
+                        Action::OgImage(image) => {
+                            return og_png_response(image, &assets, &request, &env, &method).await;
+                        }
                         other => resolve(&assets, other).await,
                     }
                 }
@@ -191,7 +192,52 @@ mod runtime {
         Ok(card::render_fortune_card(&message, &cow, &image.cow))
     }
 
-    fn png_response(png: Vec<u8>, request: &Request, env: &Env, method: &str) -> Result<Response> {
+    /// Serve `/og.png` from the Workers Cache API when possible. Cache misses
+    /// rasterize once, store the PNG under a canonical key, and spend the
+    /// tighter OG rate-limit budget. Hits skip rendering and that budget.
+    async fn og_png_response(
+        image: OgImage,
+        assets: &Fetcher,
+        request: &Request,
+        env: &Env,
+        method: &str,
+    ) -> Result<Response> {
+        let cache_key = api::og_cache_key(&image);
+        let cache = Cache::default();
+        // Key is a URL string (synthetic GET), so Range on the client request
+        // cannot turn a hit into 206. HEAD shares the same entry.
+        if let Some(mut cached) = cache.get(cache_key.as_str(), true).await? {
+            // Cache API responses keep an immutable header guard. Copy into a
+            // new list so hit/miss and CORS can be set for this request.
+            let headers = cached.headers().clone();
+            *cached.headers_mut() = headers;
+            cached.headers_mut().set("x-og-cache", "hit")?;
+            apply_cors_headers(&mut cached, request, env, method)?;
+            return maybe_head(cached, method == "HEAD");
+        }
+
+        if !within_rate_limit(env, request, "OG_RATE_LIMITER").await {
+            return text_response(api::text(429, "Too many requests.\n"), request, env, method);
+        }
+
+        let png = match render_og(assets, &image).await {
+            Ok(png) => png,
+            Err(reply) => return text_response(reply, request, env, method),
+        };
+
+        let mut response = png_body(png)?;
+        // Cache the PNG without CORS or hit/miss markers so a later request
+        // can attach the right Origin headers and report its own status.
+        let cached = response.cloned()?;
+        let _ = cache.put(cache_key.as_str(), cached).await;
+        response.headers_mut().set("x-og-cache", "miss")?;
+        apply_cors_headers(&mut response, request, env, method)?;
+        // Generated images ignore Range and stay a full 200. A byte slice of
+        // the PNG would be a different response than the one GET advertises.
+        maybe_head(response, method == "HEAD")
+    }
+
+    fn png_body(png: Vec<u8>) -> Result<Response> {
         let mut response = Response::from_bytes(png)?.with_status(200);
         response.headers_mut().set("content-type", "image/png")?;
         response
@@ -200,10 +246,7 @@ mod runtime {
         response
             .headers_mut()
             .set("x-content-type-options", "nosniff")?;
-        apply_cors_headers(&mut response, request, env, method)?;
-        // Generated images ignore Range and stay a full 200. A byte slice of
-        // the PNG would be a different response than the one GET advertises.
-        maybe_head(response, method == "HEAD")
+        Ok(response)
     }
 
     fn text_response(
