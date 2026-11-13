@@ -40,7 +40,7 @@ The automated version bump script (`scripts/version-bump.mjs`) inspects commits 
 1. **Push to `main`**: Triggers `.github/workflows/version-bump.yml`.
 2. **Version Bump PR**: If release-worthy commits are found, a pull request is automatically opened from branch `chore/version-bump` updating `package.json`, `package-lock.json`, `worker/Cargo.toml`, and `worker/Cargo.lock`.
 3. **Release**: Merging the `chore/version-bump` PR triggers `.github/workflows/release.yml`, creating tag `vX.Y.Z` and a GitHub Release.
-4. **Deployment**: The release tag push triggers `.github/workflows/deploy.yml`, which smoke-tests the API and publishes GitHub Pages. GitHub Actions does not deploy the Worker. Workers Builds runs `npm run worker:deploy` when `package.json` changes on `main`, which is the release commit, not every push.
+4. **Deployment**: The release tag push triggers `.github/workflows/deploy.yml`, which publishes GitHub Pages. GitHub Actions does not deploy the Worker and does not smoke-test the live API. Workers Builds runs `npm run worker:deploy` when `package.json` changes on `main`, which is the release commit, not every push.
 
 ## Project Structure & Commands
 

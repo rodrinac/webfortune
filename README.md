@@ -54,7 +54,7 @@ GET and HEAD are supported. The Worker handles browser OPTIONS and CORS, and exp
 
 ## Deployment
 
-See [the deployment runbook](docs/deployment.md). A new `vX.Y.Z` tag waits until `GET /health` reports that release, smoke-tests the public API, and publishes GitHub Pages. Workers Builds runs `npm run worker:deploy` for that release commit. A failed smoke test blocks the Pages deployment. Deployments are serialized.
+See [the deployment runbook](docs/deployment.md). A new `vX.Y.Z` tag publishes GitHub Pages. Workers Builds runs `npm run worker:deploy` for that release commit. Deployments are serialized.
 
 For a standalone production UI build:
 
