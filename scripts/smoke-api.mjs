@@ -113,7 +113,7 @@ assert.match(
   "default fortune content-type",
 );
 const randomId = randomResponse.headers.get("x-fortune-id");
-const randomDatabase = assertFortuneId(randomId, "random");
+assertFortuneId(randomId, "random");
 const randomRaw = await randomResponse.text();
 const randomText = randomRaw.trim();
 assert.ok(randomText, "random fortune is empty");
@@ -217,11 +217,55 @@ for (const word of normalized.split(/\s+/)) {
 }
 
 await request("/?fortune=not-a-fortune", 400);
-// A second invalid id and a duplicate category stay covered by the worker
-// unit tests. Those smoke requests were traded for the cowsay check so this
-// script stays inside the 46-request rate-limit budget.
-await request("/?fortune=not_a_real_database_8675309-0", 404);
-await request(`/?fortune=${encodeURIComponent(randomDatabase)}-4000000000`, 404);
+// Unknown ids, duplicate parameters, and /og.png query errors stay covered by
+// the worker unit tests. Those smoke requests were traded for the length
+// checks so this script stays inside the 46-request rate-limit budget.
+const shortResponse = await request("/?length=short");
+assert.match(
+  shortResponse.headers.get("content-type") || "",
+  /^text\/plain\b/,
+  "short fortune content-type",
+);
+const shortId = shortResponse.headers.get("x-fortune-id");
+assertFortuneId(shortId, "short");
+const shortBody = await shortResponse.text();
+assert.ok(shortBody.trim(), "short fortune is empty");
+assert.ok(
+  Buffer.byteLength(shortBody) <= 160,
+  `short fortune is ${Buffer.byteLength(shortBody)} bytes`,
+);
+const longResponse = await request("/?length=long");
+assertFortuneId(longResponse.headers.get("x-fortune-id"), "long");
+const longBody = await longResponse.text();
+assert.ok(
+  Buffer.byteLength(longBody) > 160,
+  `long fortune is ${Buffer.byteLength(longBody)} bytes`,
+);
+const shortJsonResponse = await request("/?length=short&format=json");
+assert.match(
+  shortJsonResponse.headers.get("content-type") || "",
+  /^application\/json\b/,
+  "short json content-type",
+);
+const shortJsonId = shortJsonResponse.headers.get("x-fortune-id");
+assertFortuneId(shortJsonId, "short json");
+const shortJson = await shortJsonResponse.json();
+assert.equal(shortJson.id, shortJsonId);
+assert.equal(shortJson.locale, "en");
+assert.ok(
+  Buffer.byteLength(shortJson.fortune) <= 160,
+  `short json fortune is ${Buffer.byteLength(shortJson.fortune)} bytes`,
+);
+const invalidLength = await request("/?length=medium", 400);
+assert.equal(await invalidLength.text(), "Invalid length.\n");
+const pinnedLength = await request(
+  `/?length=short&fortune=${encodeURIComponent(categoryId)}`,
+  400,
+);
+assert.equal(
+  await pinnedLength.text(),
+  "Length cannot be combined with fortune.\n",
+);
 for (const locale of ["de", "es"]) {
   let localizedFortunes = "";
   // The installed package decides which categories are enabled, so exercise
@@ -265,9 +309,6 @@ await png(`/og.png?fortune=${encodeURIComponent(randomId)}`);
 await png(
   `/og.png?locale=pt&fortune=${encodeURIComponent(portugueseId)}`,
 );
-await request("/og.png?fortune=not-a-fortune", 400);
-await request("/og.png?cow=../etc", 400);
-await request("/og.png?cow=not-a-real-cow", 404);
 const headHealth = await request("/health", 200, "HEAD");
 assert.equal(headHealth.headers.get("content-type"), healthType);
 assert.match(headHealth.headers.get("content-type") || "", /application\/json/);
