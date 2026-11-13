@@ -21,6 +21,27 @@ const STRFILE_HEADER_LENGTH = 24;
 const STR_ROTATED = 0x4;
 const RESOURCE_NAME = /^[A-Za-z0-9._-]+$/;
 
+// fortune(6) default SLEN. `fortune -s` keeps a fortune of at most this many
+// bytes; `fortune -l` keeps one that is longer. The count is the UTF-8 byte
+// length of the plain-text body the API returns: newlines included, the
+// strfile "%" delimiter excluded. That is the length strfile records, and the
+// length `fortlen` uses when a delimiter follows the fortune.
+export const SHORT_FORTUNE_LENGTH = 160;
+
+export function fortuneBodyLength(fortune) {
+  return Buffer.byteLength(fortune, "utf8");
+}
+
+function classifyFortunes(fortunes) {
+  const short = [];
+  const long = [];
+  fortunes.forEach((fortune, index) => {
+    if (fortuneBodyLength(fortune) <= SHORT_FORTUNE_LENGTH) short.push(index);
+    else long.push(index);
+  });
+  return { short, long };
+}
+
 export function parseStrfileIndex(dat) {
   const count = dat.readUInt32BE(4);
   const flags = dat.readUInt32BE(16);
@@ -172,6 +193,8 @@ export function generate({ fortuneDir, outDir, cowDir }) {
 
   for (const locale of LOCALES) {
     const databases = {};
+    const short = {};
+    const long = {};
     const categories = [];
     for (const { name, path, category } of localeDatabases(
       fortuneDir,
@@ -179,7 +202,10 @@ export function generate({ fortuneDir, outDir, cowDir }) {
     )) {
       const fortunes = readDatabase(path);
       if (fortunes.length === 0) continue;
+      const lengths = classifyFortunes(fortunes);
       databases[name] = fortunes.length;
+      short[name] = lengths.short;
+      long[name] = lengths.long;
       if (category) categories.push(name);
       mkdirSync(join(outDir, "fortunes", locale.id), { recursive: true });
       writeFileSync(
@@ -194,6 +220,8 @@ export function generate({ fortuneDir, outDir, cowDir }) {
       name: locale.name,
       categories,
       databases,
+      short,
+      long,
     });
   }
 

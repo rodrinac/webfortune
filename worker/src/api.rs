@@ -13,7 +13,16 @@ pub struct Locale {
     pub id: String,
     pub name: String,
     pub categories: Vec<String>,
+    /// How many fortunes each database holds. Unfiltered selection weights
+    /// databases by these counts.
     pub databases: BTreeMap<String, usize>,
+    /// Indexes whose plain-text body is at most 160 bytes, in selection order.
+    /// Asset generation writes them ascending. Missing keys match nothing.
+    #[serde(default)]
+    pub short: BTreeMap<String, Vec<u32>>,
+    /// Indexes whose plain-text body is longer than 160 bytes, in selection order.
+    #[serde(default)]
+    pub long: BTreeMap<String, Vec<u32>>,
 }
 
 #[derive(Serialize)]
@@ -105,12 +114,23 @@ enum ResponseFormat<'a> {
     Cowsay(&'a str),
 }
 
+/// `fortune -s` / `fortune -l`. The manifest lists the matching indexes; a
+/// request never measures fortune text. Short is a plain-text body of at most
+/// 160 UTF-8 bytes (fortune(6)'s default SLEN) and long is anything longer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FortuneLength {
+    Short,
+    Long,
+}
+
 struct FortuneQuery<'a> {
     locale: &'a str,
     category: &'a str,
     fortune: Option<&'a str>,
     /// Plain text unless this is `GET /` and `format` names a supported value.
     format: ResponseFormat<'a>,
+    /// Unfiltered unless this is `GET /` and `length` is `short` or `long`.
+    length: Option<FortuneLength>,
 }
 
 const TEXT: &str = "text/plain; charset=utf-8";
@@ -252,7 +272,7 @@ fn parse_query<'a>(
     manifest: &Manifest,
     query: Option<&'a str>,
 ) -> Result<FortuneQuery<'a>, &'static str> {
-    parse_query_with(manifest, query, false, false)
+    parse_query_with(manifest, query, false, false, false)
 }
 
 fn parse_query_with<'a>(
@@ -260,6 +280,7 @@ fn parse_query_with<'a>(
     query: Option<&'a str>,
     allow_fortune: bool,
     allow_format: bool,
+    allow_length: bool,
 ) -> Result<FortuneQuery<'a>, &'static str> {
     let Some(query) = query else {
         return Ok(FortuneQuery {
@@ -267,6 +288,7 @@ fn parse_query_with<'a>(
             category: "",
             fortune: None,
             format: ResponseFormat::Text,
+            length: None,
         });
     };
 
@@ -279,6 +301,7 @@ fn parse_query_with<'a>(
     let mut fortune = None;
     let mut response_format = None;
     let mut cow = None;
+    let mut length = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
             return Err("Malformed query string.\n");
@@ -289,6 +312,7 @@ fn parse_query_with<'a>(
             "fortune" if allow_fortune && fortune.replace(value).is_none() => {}
             "format" if allow_format && response_format.replace(value).is_none() => {}
             "cow" if allow_cow && cow.replace(value).is_none() => {}
+            "length" if allow_length && length.replace(value).is_none() => {}
             _ => return Err("Only one locale and category parameter are supported.\n"),
         }
     }
@@ -322,11 +346,23 @@ fn parse_query_with<'a>(
         Some(_) => return Err("Invalid format.\n"),
     };
 
+    let length = match length {
+        None => None,
+        Some("short") => Some(FortuneLength::Short),
+        Some("long") => Some(FortuneLength::Long),
+        Some(_) => return Err("Invalid length.\n"),
+    };
+    // A pinned id names one fortune, so a length filter has nothing to choose.
+    if length.is_some() && fortune.is_some() {
+        return Err("Length cannot be combined with fortune.\n");
+    }
+
     Ok(FortuneQuery {
         locale,
         category,
         fortune,
         format,
+        length,
     })
 }
 
@@ -348,6 +384,12 @@ fn find_locale<'a>(manifest: &'a Manifest, id: &str) -> Option<&'a Locale> {
     manifest.locales.iter().find(|locale| locale.id == id)
 }
 
+/// Maps `random` onto `0..total`. A value of `1.0` still lands on the last slot.
+fn weighted_slot(total: usize, random: f64) -> Option<usize> {
+    let last = total.checked_sub(1)?;
+    Some(((random * total as f64) as usize).min(last))
+}
+
 /// Picks a fortune the way fortune-mod does: databases are weighted by how
 /// many fortunes they hold, so every fortune is equally likely.
 fn pick<'a>(
@@ -355,7 +397,7 @@ fn pick<'a>(
     random: f64,
 ) -> Option<(&'a str, usize)> {
     let total: usize = databases.clone().map(|(_, count)| count).sum();
-    let mut target = ((random * total as f64) as usize).min(total.checked_sub(1)?);
+    let mut target = weighted_slot(total, random)?;
     for (database, count) in databases {
         if target < count {
             return Some((database, target));
@@ -363,6 +405,64 @@ fn pick<'a>(
         target -= count;
     }
     None
+}
+
+fn indices_of<'a>(locale: &'a Locale, name: &str, length: FortuneLength) -> &'a [u32] {
+    let lists = match length {
+        FortuneLength::Short => &locale.short,
+        FortuneLength::Long => &locale.long,
+    };
+    lists.get(name).map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// Same weighting as `pick`, over the precomputed indexes of one length.
+/// List order is the walk order; each listed fortune is equally likely.
+fn pick_indices<'a>(choices: &[(&'a str, &'a [u32])], random: f64) -> Option<(&'a str, usize)> {
+    let total: usize = choices.iter().map(|(_, indices)| indices.len()).sum();
+    let mut target = weighted_slot(total, random)?;
+    for &(database, indices) in choices {
+        if target < indices.len() {
+            return Some((database, indices[target] as usize));
+        }
+        target -= indices.len();
+    }
+    None
+}
+
+fn select<'a>(
+    locale: &'a Locale,
+    category: &str,
+    length: Option<FortuneLength>,
+    random: f64,
+) -> Option<(&'a str, usize)> {
+    match length {
+        None if category.is_empty() => pick(
+            locale
+                .databases
+                .iter()
+                .map(|(name, count)| (name.as_str(), *count)),
+            random,
+        ),
+        None => locale
+            .databases
+            .get_key_value(category)
+            .and_then(|(name, count)| pick(std::iter::once((name.as_str(), *count)), random)),
+        Some(length) if category.is_empty() => {
+            let choices: Vec<_> = locale
+                .databases
+                .keys()
+                .map(|name| (name.as_str(), indices_of(locale, name, length)))
+                .collect();
+            pick_indices(&choices, random)
+        }
+        Some(length) => locale
+            .databases
+            .get_key_value(category)
+            .and_then(|(name, _count)| {
+                let choices = [(name.as_str(), indices_of(locale, name, length))];
+                pick_indices(&choices, random)
+            }),
+    }
 }
 
 fn pinned_fortune(locale: &Locale, category: &str, id: &str) -> Action {
@@ -415,7 +515,7 @@ fn apply_format(action: Action, format: ResponseFormat<'_>) -> Action {
 }
 
 fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
-    let query = match parse_query_with(manifest, query, true, true) {
+    let query = match parse_query_with(manifest, query, true, true, true) {
         Ok(query) => query,
         Err(error) => return Action::Reply(text(400, error)),
     };
@@ -427,30 +527,23 @@ fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
     let locale = find_locale(manifest, query.locale).expect("validated locale");
     let action = if let Some(id) = query.fortune {
         pinned_fortune(locale, query.category, id)
+    } else if !query.category.is_empty()
+        && !locale.categories.iter().any(|name| name == query.category)
+    {
+        return Action::Reply(text(404, "Fortune category not found.\n"));
     } else {
-        let picked = if query.category.is_empty() {
-            pick(
-                locale
-                    .databases
-                    .iter()
-                    .map(|(name, count)| (name.as_str(), *count)),
-                random,
-            )
-        } else if locale.categories.iter().any(|name| name == query.category) {
-            locale
-                .databases
-                .get_key_value(query.category)
-                .and_then(|(name, count)| pick(std::iter::once((name.as_str(), *count)), random))
-        } else {
-            return Action::Reply(text(404, "Fortune category not found.\n"));
-        };
-
-        match picked {
+        match select(locale, query.category, query.length, random) {
             Some((database, index)) => Action::Fortune {
                 locale: locale.id.clone(),
                 database: database.to_string(),
                 index,
             },
+            // An empty length list is a successful read of the manifest that
+            // simply contains no match. A locale with no databases at all still
+            // reports the service unavailable when length is omitted.
+            None if query.length.is_some() => {
+                Action::Reply(text(404, "No fortune of that length.\n"))
+            }
             None => Action::Reply(text(503, "Fortune service unavailable.\n")),
         }
     };
@@ -1075,6 +1168,12 @@ mod tests {
                 "/",
                 Some("locale=pt&category=art&format=cowsay&cow=default"),
             ),
+            ("/", Some("length=short")),
+            ("/", Some("length=long&category=art")),
+            ("/", Some("length=nope")),
+            ("/", Some("length=short&fortune=art-0")),
+            ("/", Some("length=short&format=json")),
+            ("/", Some("length=long&format=cowsay&cow=tux")),
             ("/", Some("format=cowsay&cow=moose")),
             ("/", Some("format=cowsay&cow=../etc")),
             ("/health", None),
@@ -1719,5 +1818,310 @@ mod tests {
         assert!(markup.body.contains("<script>alert(\"1\")</script>"));
         assert!(!markup.body.contains("&lt;"));
         assert!(markup.body.ends_with("\nX\n"));
+    }
+
+    fn length_manifest() -> Manifest {
+        serde_json::from_str(
+            r#"{
+              "locales": [
+                {
+                  "id": "en", "name": "English",
+                  "categories": ["art", "poem", "zippy"],
+                  "databases": { "art": 4, "poem": 2, "zippy": 3 },
+                  "short": { "art": [0, 2], "poem": [], "zippy": [1] },
+                  "long": { "art": [1, 3], "poem": [0, 1], "zippy": [0, 2] }
+                },
+                {
+                  "id": "pt", "name": "Português", "categories": [],
+                  "databases": { "brasil": 4 },
+                  "short": { "brasil": [] },
+                  "long": { "brasil": [3, 1, 0, 2] }
+                }
+              ],
+              "cows": ["default", "tux"]
+            }"#,
+        )
+        .unwrap()
+    }
+
+    fn length_at(query: &str, random: f64) -> Action {
+        handle("GET", "/", Some(query), &length_manifest(), random)
+    }
+
+    fn picked(locale: &str, database: &str, index: usize) -> Action {
+        Action::Fortune {
+            locale: locale.to_string(),
+            database: database.to_string(),
+            index,
+        }
+    }
+
+    #[test]
+    fn omitting_length_keeps_count_weighted_selection() {
+        // art index 3 is long-only, poem sits between art and zippy and is
+        // entirely long. Unfiltered draws still walk database counts.
+        assert_eq!(length_at("locale=en", 0.0), picked("en", "art", 0));
+        assert_eq!(length_at("locale=en", 0.34), picked("en", "art", 3));
+        assert_eq!(length_at("locale=en", 0.5), picked("en", "poem", 0));
+        assert_eq!(length_at("locale=en", 0.6), picked("en", "poem", 1));
+        assert_eq!(length_at("locale=en", 0.7), picked("en", "zippy", 0));
+        assert_eq!(length_at("locale=en", 0.999), picked("en", "zippy", 2));
+        assert_eq!(length_at("locale=pt", 0.0), picked("pt", "brasil", 0));
+        assert_eq!(
+            handle("GET", "/", None, &length_manifest(), 0.34),
+            picked("en", "art", 3)
+        );
+    }
+
+    #[test]
+    fn length_selects_uniformly_over_matching_indexes() {
+        // Short lists: art [0, 2], poem [], zippy [1]. poem is skipped.
+        assert_eq!(length_at("length=short", 0.0), picked("en", "art", 0));
+        assert_eq!(length_at("length=short", 0.2), picked("en", "art", 0));
+        assert_eq!(length_at("length=short", 0.4), picked("en", "art", 2));
+        assert_eq!(length_at("length=short", 0.8), picked("en", "zippy", 1));
+        assert_eq!(length_at("length=short", 0.999), picked("en", "zippy", 1));
+
+        // Long lists: art [1, 3], poem [0, 1], zippy [0, 2].
+        assert_eq!(length_at("length=long", 0.0), picked("en", "art", 1));
+        assert_eq!(length_at("length=long", 0.1), picked("en", "art", 1));
+        assert_eq!(length_at("length=long", 0.2), picked("en", "art", 3));
+        assert_eq!(length_at("length=long", 0.4), picked("en", "poem", 0));
+        assert_eq!(length_at("length=long", 0.6), picked("en", "poem", 1));
+        assert_eq!(length_at("length=long", 0.7), picked("en", "zippy", 0));
+        assert_eq!(length_at("length=long", 0.9), picked("en", "zippy", 2));
+        assert_eq!(length_at("length=long", 0.999), picked("en", "zippy", 2));
+
+        // List order is the walk order, not the numeric order of the indexes.
+        assert_eq!(
+            length_at("locale=pt&length=long", 0.0),
+            picked("pt", "brasil", 3)
+        );
+        assert_eq!(
+            length_at("locale=pt&length=long", 0.3),
+            picked("pt", "brasil", 1)
+        );
+        assert_eq!(
+            length_at("locale=pt&length=long", 0.6),
+            picked("pt", "brasil", 0)
+        );
+        assert_eq!(
+            length_at("locale=pt&length=long", 0.9),
+            picked("pt", "brasil", 2)
+        );
+    }
+
+    #[test]
+    fn length_combines_with_category_and_response_format() {
+        let cases = [
+            (
+                "length=short&category=zippy",
+                "category=zippy&length=short&format=json",
+                "length=short&category=zippy&format=cowsay&cow=tux",
+                "tux",
+                0.0,
+                picked("en", "zippy", 1),
+            ),
+            (
+                "length=long&category=art",
+                "format=json&length=long&category=art",
+                "format=cowsay&cow=default&category=art&length=long",
+                "default",
+                0.999,
+                picked("en", "art", 3),
+            ),
+            (
+                "locale=pt&length=long",
+                "locale=pt&length=long&format=json",
+                "locale=pt&length=long&format=cowsay&cow=tux",
+                "tux",
+                0.0,
+                picked("pt", "brasil", 3),
+            ),
+            (
+                "length=short",
+                "format=json&length=short",
+                "length=short&format=cowsay",
+                "default",
+                0.4,
+                picked("en", "art", 2),
+            ),
+            (
+                "category=poem&length=long",
+                "category=poem&length=long&format=json",
+                "format=cowsay&cow=tux&length=long&category=poem",
+                "tux",
+                0.999,
+                picked("en", "poem", 1),
+            ),
+        ];
+        for (plain, json, cowsay, cow, random, expected) in cases {
+            assert_eq!(length_at(plain, random), expected, "{plain}");
+            assert_eq!(
+                as_plain_fortune(length_at(json, random)),
+                expected,
+                "{json}"
+            );
+            assert!(
+                matches!(length_at(json, random), Action::FortuneJson { .. }),
+                "{json}"
+            );
+            match length_at(cowsay, random) {
+                Action::FortuneCowsay {
+                    cow: chosen,
+                    locale,
+                    database,
+                    index,
+                } => {
+                    assert_eq!(chosen, cow, "{cowsay}");
+                    assert_eq!(
+                        Action::Fortune {
+                            locale,
+                            database,
+                            index,
+                        },
+                        expected,
+                        "{cowsay}"
+                    );
+                }
+                other => panic!("cowsay {cowsay}: {other:?}"),
+            }
+            assert_eq!(
+                handle("HEAD", "/", Some(plain), &length_manifest(), random),
+                length_at(plain, random),
+                "HEAD {plain}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_length_and_length_with_fortune_are_rejected() {
+        for query in [
+            "length=",
+            "length=SHORT",
+            "length=Long",
+            "length=tiny",
+            "length=0",
+            "length=160",
+            "length=short ",
+            "length=long\n",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Invalid length.\n"),
+                "{query}"
+            );
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        for query in [
+            "length=short&length=long",
+            "length=short&length=short",
+            "length=long&locale=en&length=short",
+            "LENGTH=short",
+            "length=short&cow=tux",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (
+                    400,
+                    "Only one locale and category parameter are supported.\n"
+                ),
+                "{query}"
+            );
+        }
+
+        for query in [
+            "length=short&fortune=art-0",
+            "fortune=zippy-2&length=long",
+            "length=long&format=json&fortune=zippy-2",
+            "format=cowsay&cow=tux&length=short&fortune=art-1",
+            "length=short&fortune=art-99",
+            "locale=pt&length=long&fortune=brasil-3",
+            "category=art&length=short&fortune=art-0&format=json",
+        ] {
+            let reply = reply_of(length_at(query, 0.2));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Length cannot be combined with fortune.\n"),
+                "{query}"
+            );
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        // Syntax and other parameters are still reported first.
+        for (query, body) in [
+            ("length=short&fortune=art-01", "Invalid fortune.\n"),
+            ("length=nope&fortune=art-0", "Invalid length.\n"),
+            ("format=xml&length=short", "Invalid format.\n"),
+            ("length=long&locale=fr", "Unsupported locale.\n"),
+            ("length=short&category=../etc", "Invalid category.\n"),
+            ("length=short&format=cowsay&cow=../etc", "Invalid cow.\n"),
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!((reply.status, reply.body.as_str()), (400, body), "{query}");
+        }
+
+        assert_eq!(
+            reply_of(get("/categories", Some("length=short"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/categories", Some("locale=pt&length=long"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("length=short"))).body,
+            "Only one locale, category, cow, and fortune parameter are supported.\n"
+        );
+    }
+
+    #[test]
+    fn length_with_no_match_is_not_found() {
+        for (query, body) in [
+            ("length=short&category=poem", "No fortune of that length.\n"),
+            ("locale=pt&length=short", "No fortune of that length.\n"),
+            (
+                "locale=pt&length=short&format=json",
+                "No fortune of that length.\n",
+            ),
+            (
+                "category=poem&length=short&format=cowsay&cow=tux",
+                "No fortune of that length.\n",
+            ),
+            (
+                "category=nope&length=short",
+                "Fortune category not found.\n",
+            ),
+            (
+                "locale=pt&category=brasil&length=long",
+                "Fortune category not found.\n",
+            ),
+            ("length=short&format=cowsay&cow=moose", "Cow not found.\n"),
+        ] {
+            let reply = reply_of(length_at(query, 0.4));
+            assert_eq!((reply.status, reply.body.as_str()), (404, body), "{query}");
+            assert!(
+                reply.headers.iter().any(|(name, value)| {
+                    *name == "content-type" && value.starts_with("text/plain")
+                }),
+                "{query}"
+            );
+        }
+
+        // The default fixture has fortunes and no length lists, so a filter
+        // matches nothing while an unfiltered draw still succeeds.
+        let missing = reply_of(get("/", Some("length=long")));
+        assert_eq!(
+            (missing.status, missing.body.as_str()),
+            (404, "No fortune of that length.\n")
+        );
+        assert!(matches!(get("/", None), Action::Fortune { .. }));
     }
 }

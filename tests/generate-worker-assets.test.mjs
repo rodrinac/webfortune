@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  SHORT_FORTUNE_LENGTH,
+  fortuneBodyLength,
   generate,
   listDatabases,
   parseCowArt,
@@ -138,20 +140,33 @@ test("generates locale databases, categories and cows", () => {
       name: "English",
       categories: ["computers"],
       databases: { computers: 2 },
+      short: { computers: [0, 1] },
+      long: { computers: [] },
     },
     {
       id: "de",
       name: "Deutsch",
       categories: ["witze"],
       databases: { witze: 1 },
+      short: { witze: [0] },
+      long: { witze: [] },
     },
     {
       id: "es",
       name: "Español",
       categories: ["witze"],
       databases: { witze: 1 },
+      short: { witze: [0] },
+      long: { witze: [] },
     },
-    { id: "pt", name: "Português", categories: [], databases: { brasil: 1 } },
+    {
+      id: "pt",
+      name: "Português",
+      categories: [],
+      databases: { brasil: 1 },
+      short: { brasil: [0] },
+      long: { brasil: [] },
+    },
   ]);
   assert.deepEqual(manifest.cows, ["default", "tux"]);
   assert.deepEqual(
@@ -169,4 +184,50 @@ test("generates locale databases, categories and cows", () => {
     JSON.parse(readFileSync(join(outDir, "manifest.json"), "utf8")),
     manifest,
   );
+});
+
+test("classifies fortunes by the fortune(6) byte length of the plain-text body", () => {
+  assert.equal(SHORT_FORTUNE_LENGTH, 160);
+  const exact = `${"x".repeat(159)}\n`;
+  const over = `${"x".repeat(160)}\n`;
+  const multibyteLong = `${"é".repeat(80)}\n`;
+  const multibyteShort = `${"é".repeat(79)}.\n`;
+  const wrapped = "one\ntwo\n";
+  assert.equal(fortuneBodyLength(exact), 160);
+  assert.equal(fortuneBodyLength(over), 161);
+  assert.equal(fortuneBodyLength(multibyteLong), 161);
+  assert.equal(Array.from(multibyteLong).length, 81);
+  assert.equal(fortuneBodyLength(multibyteShort), 160);
+  assert.equal(Array.from(multibyteShort).length, 81);
+  assert.equal(fortuneBodyLength(wrapped), 8);
+
+  const fortuneDir = mkdtempSync(join(tmpdir(), "fortunes-"));
+  const outDir = mkdtempSync(join(tmpdir(), "assets-"));
+  writeDatabase(
+    join(fortuneDir, "computers"),
+    [exact, over, multibyteLong, multibyteShort, wrapped].join("%\n"),
+  );
+  writeDatabase(join(fortuneDir, "brasil"), "Olá.\n");
+  for (const locale of ["de", "es"]) {
+    mkdirSync(join(fortuneDir, locale));
+    writeDatabase(join(fortuneDir, locale, "witze"), `${locale}.\n`);
+  }
+  const cowDir = join(fortuneDir, "cows");
+  mkdirSync(cowDir);
+  writeFileSync(join(cowDir, "default.cow"), "$the_cow = <<EOC;\nmoo\nEOC\n");
+
+  const manifest = generate({ fortuneDir, outDir, cowDir });
+  const english = manifest.locales.find(({ id }) => id === "en");
+  assert.deepEqual(english.databases, { computers: 5 });
+  assert.deepEqual(english.short, { computers: [0, 3, 4] });
+  assert.deepEqual(english.long, { computers: [1, 2] });
+  assert.deepEqual(
+    JSON.parse(
+      readFileSync(join(outDir, "fortunes", "en", "computers.json"), "utf8"),
+    ),
+    [exact, over, multibyteLong, multibyteShort, wrapped],
+  );
+  const portuguese = manifest.locales.find(({ id }) => id === "pt");
+  assert.deepEqual(portuguese.short, { brasil: [0] });
+  assert.deepEqual(portuguese.long, { brasil: [] });
 });
