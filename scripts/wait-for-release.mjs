@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 
-// Deploy production runs this before scripts/smoke-api.mjs. The previous
+// Optional helper before a manual production smoke (`npm run smoke`). The previous
 // Worker also returns {"status":"ok"}, so a live health check is not proof
 // that this release is serving. /health includes the crate version, which is
 // the tag without the leading v.

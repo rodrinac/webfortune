@@ -84,7 +84,7 @@ jobs:
             --base "${GITHUB_REF_NAME}" \
             --head "$branch" \
             --title "chore(release): v${VERSION}" \
-            --body "Automated version bump to \`v${VERSION}\`, determined from Conventional Commits merged since the last release tag. Merging this PR creates tag \`v${VERSION}\`, which publishes GitHub Pages after the API smoke test.")"
+            --body "Automated version bump to \`v${VERSION}\`, determined from Conventional Commits merged since the last release tag. Merging this PR creates tag \`v${VERSION}\`, which publishes GitHub Pages.")"
           PR_NUMBER="${pr_url##*/}"
 
           # Refuse to admin-merge if the PR head touches anything beyond version metadata.
