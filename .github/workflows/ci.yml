@@ -27,10 +27,12 @@ jobs:
       worker: ${{ steps.out.outputs.worker }}
       deploy_command: ${{ steps.out.outputs.deploy_command }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@v4
+      - name: Require SHA-pinned GitHub Actions
+        run: node scripts/check-pinned-actions.mjs
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -43,6 +45,7 @@ jobs:
               - 'vite.config.*'
               - 'playwright.config.*'
               - 'scripts/check-config.mjs'
+              - 'scripts/check-pinned-actions.mjs'
               - '.github/workflows/**'
             worker:
               - 'worker/**'
@@ -88,12 +91,12 @@ jobs:
         run: echo "No web-related changes; skipping."
 
       - if: needs.changes.outputs.web == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - if: needs.changes.outputs.web == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -110,7 +113,7 @@ jobs:
           VITE_API_URL: https://api.webfortune.app
 
       - if: needs.changes.outputs.web == 'true'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -134,21 +137,21 @@ jobs:
         run: echo "No worker-related changes; skipping."
 
       - if: needs.changes.outputs.worker == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - if: needs.changes.outputs.worker == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
 
       - if: needs.changes.outputs.worker == 'true'
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
 
       - if: needs.changes.outputs.worker == 'true'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             worker/target
@@ -198,14 +201,14 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin
