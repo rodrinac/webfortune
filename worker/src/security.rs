@@ -1,14 +1,36 @@
 //! Security headers added to HTML from the Pages host.
 //!
-//! `html-security-headers.txt` is the only copy of the policy. The Vite
+//! `html-security-headers.txt` is the only copy of the HTML policy. The Vite
 //! dev and preview servers read that same file, so the Playwright run
-//! exercises the headers the Worker sends.
+//! exercises the headers the Worker sends. HSTS also rides on API text, JSON,
+//! and PNG responses via [`STRICT_TRANSPORT_SECURITY`].
 //!
 //! The host library target does not link the Worker runtime, which is the only
 //! non-test caller. Dead-code checks still run for the wasm32 build.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use std::fmt;
+
+/// One year, with subdomains. Keep the Cloudflare zone HSTS at least this
+/// strong so dashboard and Worker policies do not conflict. Do not add
+/// `preload` until every subdomain is HTTPS-only and hstspreload.org is a
+/// deliberate follow-up.
+pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=31536000; includeSubDomains";
+
+/// True when `value` is a long-lived HSTS policy (≥ one year, includeSubDomains).
+#[cfg(test)]
+fn is_long_lived_hsts(value: &str) -> bool {
+    let mut max_age = None;
+    let mut include_subdomains = false;
+    for part in value.split(';').map(str::trim) {
+        if let Some(age) = part.strip_prefix("max-age=") {
+            max_age = age.parse::<u64>().ok();
+        } else if part.eq_ignore_ascii_case("includesubdomains") {
+            include_subdomains = true;
+        }
+    }
+    max_age.is_some_and(|age| age >= 31_536_000) && include_subdomains
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct HeaderParseError {
@@ -102,6 +124,7 @@ mod tests {
                 "x-content-type-options",
                 "permissions-policy",
                 "x-frame-options",
+                "strict-transport-security",
             ]
         );
         assert!(header(&headers, "content-security-policy-report-only").is_empty());
@@ -149,6 +172,21 @@ mod tests {
             "camera=(), microphone=(), geolocation=(), payment=()"
         );
         assert_eq!(header(&headers, "x-frame-options"), "DENY");
+        let hsts = header(&headers, "strict-transport-security");
+        assert_eq!(hsts, STRICT_TRANSPORT_SECURITY);
+        assert!(is_long_lived_hsts(hsts));
+    }
+
+    #[test]
+    fn long_lived_hsts_requires_one_year_and_subdomains() {
+        assert!(is_long_lived_hsts(STRICT_TRANSPORT_SECURITY));
+        assert!(is_long_lived_hsts(
+            "max-age=31536000; includeSubDomains; preload"
+        ));
+        assert!(!is_long_lived_hsts("max-age=2592000"));
+        assert!(!is_long_lived_hsts("max-age=31536000"));
+        assert!(!is_long_lived_hsts("max-age=2592000; includeSubDomains"));
+        assert!(!is_long_lived_hsts(""));
     }
 
     #[test]

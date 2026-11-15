@@ -178,6 +178,10 @@ pub fn reply(status: u16, content_type: &str, body: impl Into<String>) -> Reply 
             ("content-type", content_type.to_string()),
             ("cache-control", "no-store".to_string()),
             ("x-content-type-options", "nosniff".to_string()),
+            (
+                "strict-transport-security",
+                crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
+            ),
         ],
         body: body.into(),
     }
@@ -560,7 +564,10 @@ pub fn handle(
     if method == "OPTIONS" {
         return Action::Reply(Reply {
             status: 204,
-            headers: Vec::new(),
+            headers: vec![(
+                "strict-transport-security",
+                crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
+            )],
             body: String::new(),
         });
     }
@@ -571,6 +578,10 @@ pub fn handle(
             headers: vec![
                 ("allow", "GET, HEAD".to_string()),
                 ("content-type", TEXT.to_string()),
+                (
+                    "strict-transport-security",
+                    crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
+                ),
             ],
             body: "Method not allowed.\n".to_string(),
         });
@@ -1201,10 +1212,37 @@ mod tests {
             assert_eq!(reply.status, 405, "{method}");
             assert_eq!(reply.body, "Method not allowed.\n");
             assert!(reply.headers.contains(&("allow", "GET, HEAD".to_string())));
+            assert!(reply.headers.contains(&(
+                "strict-transport-security",
+                crate::security::STRICT_TRANSPORT_SECURITY.to_string()
+            )));
         }
+        let options = reply_of(handle("OPTIONS", "/", None, &manifest(), 0.0));
+        assert_eq!(options.status, 204);
+        assert!(options.headers.contains(&(
+            "strict-transport-security",
+            crate::security::STRICT_TRANSPORT_SECURITY.to_string()
+        )));
+    }
+
+    #[test]
+    fn text_json_and_error_replies_carry_long_lived_hsts() {
+        let hsts = (
+            "strict-transport-security",
+            crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
+        );
+        assert!(hsts.1.contains("max-age=31536000"));
+        assert!(hsts.1.contains("includeSubDomains"));
+        assert!(text(200, "ok\n").headers.contains(&hsts));
+        assert!(json(&serde_json::json!({"ok": true}))
+            .headers
+            .contains(&hsts));
+        assert!(text(429, "Too many requests.\n").headers.contains(&hsts));
+        assert!(text(400, "Invalid locale.\n").headers.contains(&hsts));
+        // `/og.png` success uses the same constant in `png_body` (wasm runtime).
         assert_eq!(
-            reply_of(handle("OPTIONS", "/", None, &manifest(), 0.0)).status,
-            204
+            crate::security::STRICT_TRANSPORT_SECURITY,
+            "max-age=31536000; includeSubDomains"
         );
     }
 
@@ -1466,6 +1504,10 @@ mod tests {
         assert!(json_reply
             .headers
             .contains(&("x-content-type-options", "nosniff".to_string())));
+        assert!(json_reply.headers.contains(&(
+            "strict-transport-security",
+            crate::security::STRICT_TRANSPORT_SECURITY.to_string()
+        )));
         assert!(json_reply
             .headers
             .contains(&("x-fortune-id", "off-color-1".to_string())));
@@ -1776,6 +1818,10 @@ mod tests {
         assert!(reply
             .headers
             .contains(&("x-content-type-options", "nosniff".to_string())));
+        assert!(reply.headers.contains(&(
+            "strict-transport-security",
+            crate::security::STRICT_TRANSPORT_SECURITY.to_string()
+        )));
         assert!(reply
             .headers
             .contains(&("x-fortune-id", "off-color-1".to_string())));
