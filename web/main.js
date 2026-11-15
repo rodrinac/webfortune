@@ -32,6 +32,7 @@ const cow = $("cow");
 const stage = $("fortune-stage");
 const locale = $("locale");
 const category = $("category");
+const length = $("length");
 const cowStyle = $("cow-style");
 const refresh = $("refresh");
 const copy = $("copy");
@@ -67,6 +68,10 @@ const translations = {
     statusLast: "Keeping your last fortune",
     statusAway: "The pasture is out of reach",
     language: "Language",
+    length: "Length",
+    lengthAny: "Any",
+    lengthShort: "Short",
+    lengthLong: "Long",
     category: "A little about",
     cow: "Cow",
     everything: "Everything",
@@ -117,6 +122,10 @@ const translations = {
     statusLast: "Die letzte Weisheit bleibt",
     statusAway: "Die Weide ist nicht erreichbar",
     language: "Sprache",
+    length: "Länge",
+    lengthAny: "Beliebig",
+    lengthShort: "Kurz",
+    lengthLong: "Lang",
     category: "Ein wenig über",
     cow: "Kuh",
     everything: "Alles",
@@ -166,6 +175,10 @@ const translations = {
     statusLast: "Conservando tu fortuna anterior",
     statusAway: "La pradera no responde",
     language: "Idioma",
+    length: "Longitud",
+    lengthAny: "Cualquiera",
+    lengthShort: "Corta",
+    lengthLong: "Larga",
     category: "Un poco sobre",
     cow: "Vaca",
     everything: "Todo",
@@ -215,6 +228,10 @@ const translations = {
     statusLast: "Mantendo sua fortuna anterior",
     statusAway: "O pasto está fora do alcance",
     language: "Idioma",
+    length: "Tamanho",
+    lengthAny: "Qualquer",
+    lengthShort: "Curta",
+    lengthLong: "Longa",
     category: "Um pouco sobre",
     cow: "Vaca",
     everything: "Tudo",
@@ -271,6 +288,7 @@ function currentSettings() {
     locale: currentLocale,
     cow: cowStyle.value,
     category: category.value,
+    length: length.value,
     fortune: fortuneId,
     defaultLocale,
   };
@@ -336,6 +354,15 @@ function applyLocale() {
   $("terminal").setAttribute("aria-label", text.terminal);
   setText("terminal-label", text.pasture);
   setText("locale-label", text.language);
+  setText("length-label", text.length);
+  for (const option of length.options) {
+    option.textContent =
+      option.value === "short"
+        ? text.lengthShort
+        : option.value === "long"
+          ? text.lengthLong
+          : text.lengthAny;
+  }
   setText("category-label", text.category);
   setText("cow-label", text.cow);
   setText("copy-label", text.copy);
@@ -401,7 +428,10 @@ async function request(path) {
 function fortuneRequestPath(id) {
   const params = new URLSearchParams({ locale: currentLocale });
   if (category.value) params.set("category", category.value);
+  // A pinned id is the exact fortune. The API rejects fortune together with length.
   if (id) params.set("fortune", id);
+  else if (length.value === "short" || length.value === "long")
+    params.set("length", length.value);
   return `/?${params}`;
 }
 
@@ -410,6 +440,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
   busy = true;
   refresh.disabled = true;
   locale.disabled = true;
+  length.disabled = true;
   category.disabled = true;
   cowStyle.disabled = true;
   copy.disabled = true;
@@ -451,7 +482,9 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     $("status").textContent = strings().statusFresh;
     renderCow();
     trackSiteEvent("fortune_shown", {
-      reason: ["initial", "button", "keyboard", "category", "language"].includes(reason)
+      reason: ["initial", "button", "keyboard", "category", "language", "length"].includes(
+        reason,
+      )
         ? reason
         : "initial",
     });
@@ -474,6 +507,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     busy = false;
     refresh.disabled = false;
     locale.disabled = false;
+    length.disabled = false;
     category.disabled = category.options.length < 2;
     cowStyle.disabled = cowStyle.options.length < 2;
     copy.disabled = !fortune;
@@ -483,7 +517,9 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
 }
 
 function commandText() {
-  return `fortune${category.value ? ` ${category.value}` : ""} | cowsay${cowStyle.value !== "default" ? ` -f ${cowStyle.value}` : ""}`;
+  const lengthFlag =
+    length.value === "short" ? " -s" : length.value === "long" ? " -l" : "";
+  return `fortune${lengthFlag}${category.value ? ` ${category.value}` : ""} | cowsay${cowStyle.value !== "default" ? ` -f ${cowStyle.value}` : ""}`;
 }
 
 async function loadCows() {
@@ -587,6 +623,11 @@ category.addEventListener("change", () => {
   syncSettingsUrl();
   loadFortune({ random: true, reason: "category" });
 });
+length.addEventListener("change", () => {
+  fortuneId = "";
+  syncSettingsUrl();
+  loadFortune({ random: true, reason: "length" });
+});
 cowStyle.addEventListener("change", async () => {
   const selected = cowStyle.value;
   if ((await loadCowArtwork()) && cowStyle.value === selected)
@@ -604,7 +645,7 @@ locale.addEventListener("change", async () => {
 copy.addEventListener("click", async () => {
   try {
     // The address bar stores the fortune id and any non-default settings, so
-    // the shared link reopens this exact fortune, language, cow, and category.
+    // the shared link reopens this exact fortune, language, cow, category, and length.
     const websiteUrl = `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
     await navigator.clipboard.writeText(`${fortune}\n\n${websiteUrl}`);
     trackSiteEvent("copy_fortune", { result: "copied" });
@@ -883,6 +924,11 @@ async function initialize() {
         await Promise.all([loadCategories(), loadCows()]);
         selectFromUrl(category, "category");
         selectFromUrl(cowStyle, "cow");
+        const requestedLength = allowedParam(initialSearch, "length", [
+          "short",
+          "long",
+        ]);
+        if (requestedLength !== undefined) length.value = requestedLength;
         fortuneId = fortuneParam(initialSearch) || "";
         if (cowStyle.value !== "default") await loadCowArtwork();
         // Normalize before the fortune request so an invalid query does not

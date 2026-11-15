@@ -51,6 +51,12 @@ async function mockApi(page) {
 
     const requested = url.searchParams.get("fortune");
     fortuneRequests.push(url.search);
+    if (requested && url.searchParams.has("length"))
+      return route.fulfill({
+        status: 400,
+        contentType: "text/plain",
+        body: "Invalid query.\n",
+      });
     if (requested && !isFortuneId(requested))
       return route.fulfill({
         status: 400,
@@ -204,4 +210,46 @@ test("invalid and stale fortune ids fall back to a random fortune", async ({
   );
   expect(fortuneRequests.at(-1)).toBe("?locale=en");
   expect(fortuneRequests.at(-1)).not.toContain("fortune=");
+});
+
+test("a permalink wins over the length filter", async ({ page }) => {
+  const fortuneRequests = await mockApi(page);
+  await page.goto(
+    "/?locale=pt&cow=tux&category=love&length=short&fortune=love-4",
+  );
+
+  await expect(page.locator("#fortune-text")).toHaveText(bodies["love-4"]);
+  await expect(page.locator("#error")).toBeHidden();
+  await expect(page.locator("#length")).toHaveValue("short");
+  await expect(page.locator("#category")).toHaveValue("love");
+  await expect(page.locator("#locale")).toHaveValue("pt");
+  await expect(page.locator("#cow-style")).toHaveValue("tux");
+  expect(fortuneRequests).toEqual([
+    "?locale=pt&category=love&fortune=love-4",
+  ]);
+  expect(new URL(page.url()).search).toBe(
+    "?locale=pt&cow=tux&category=love&length=short&fortune=love-4",
+  );
+
+  await page.reload();
+  await expect(page.locator("#fortune-text")).toHaveText(bodies["love-4"]);
+  await expect(page.locator("#length")).toHaveValue("short");
+  expect(fortuneRequests.at(-1)).toBe(
+    "?locale=pt&category=love&fortune=love-4",
+  );
+
+  await page.locator("#refresh").click();
+  await expect(page.locator("#fortune-text")).toHaveText(bodies["love-2"]);
+  await expect(page.locator("#length")).toHaveValue("short");
+  await expect.poll(() => page.evaluate(() => location.search)).toBe(
+    "?locale=pt&cow=tux&category=love&length=short&fortune=love-2",
+  );
+  expect(fortuneRequests.at(-1)).toBe("?locale=pt&category=love&length=short");
+
+  await page.selectOption("#length", "long");
+  await expect(page.locator("#fortune-text")).toHaveText(bodies["love-4"]);
+  await expect.poll(() => page.evaluate(() => location.search)).toBe(
+    "?locale=pt&cow=tux&category=love&length=long&fortune=love-4",
+  );
+  expect(fortuneRequests.at(-1)).toBe("?locale=pt&category=love&length=long");
 });

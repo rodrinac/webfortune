@@ -185,6 +185,111 @@ test("reads one canonical fortune id and rejects the rest", () => {
   assert.equal(allowedParam("?fortune=nope&cow=tux", "cow", cows), "tux");
 });
 
+const lengths = ["short", "long"];
+
+test("reads one length and ignores invalid or repeated values", () => {
+  assert.equal(allowedParam("?length=short", "length", lengths), "short");
+  assert.equal(allowedParam("?length=long", "length", lengths), "long");
+  assert.equal(
+    allowedParam("?locale=pt&cow=tux&category=love&length=long", "length", lengths),
+    "long",
+  );
+  assert.equal(allowedParam("", "length", lengths), undefined);
+  assert.equal(allowedParam("?length=any", "length", lengths), undefined);
+  assert.equal(allowedParam("?length=SHORT", "length", lengths), undefined);
+  assert.equal(allowedParam("?length=", "length", lengths), undefined);
+  assert.equal(allowedParam("?length", "length", lengths), undefined);
+  assert.equal(allowedParam("?length=tiny", "length", lengths), undefined);
+  assert.equal(allowedParam("?length=short ", "length", lengths), undefined);
+  assert.equal(
+    allowedParam("?length=short&length=long", "length", lengths),
+    undefined,
+  );
+  assert.equal(
+    allowedParam("?length=short&length=short", "length", lengths),
+    undefined,
+  );
+  assert.equal(
+    allowedParam("?length=%3Cshort%3E", "length", lengths),
+    undefined,
+  );
+  // A bad length does not hide a sibling setting.
+  assert.equal(
+    allowedParam("?length=nope&category=love", "category", categories),
+    "love",
+  );
+});
+
+test("serializes length between category and the fortune id", () => {
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      length: "short",
+      fortune: "love-4",
+      defaultLocale: "en",
+    }),
+    "?locale=pt&cow=tux&category=love&length=short&fortune=love-4",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "default",
+      category: "",
+      length: "long",
+      defaultLocale: "en",
+    }),
+    "?length=long",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "default",
+      category: "wisdom",
+      length: "short",
+      fortune: "wisdom-0",
+      defaultLocale: "en",
+    }),
+    "?category=wisdom&length=short&fortune=wisdom-0",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "default",
+      category: "",
+      length: "long",
+      fortune: "geral-0",
+      defaultLocale: "pt",
+    }),
+    "?length=long&fortune=geral-0",
+  );
+  for (const length of ["", "any", "SHORT", "tiny", "short ", "<short>", null]) {
+    assert.equal(
+      settingsQuery({
+        locale: "en",
+        cow: "default",
+        category: "",
+        length,
+        defaultLocale: "en",
+      }),
+      "",
+      String(length),
+    );
+  }
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      length: "../short",
+      fortune: "love-4",
+      defaultLocale: "en",
+    }),
+    "?locale=pt&cow=tux&category=love&fortune=love-4",
+  );
+});
+
 test("serializes the fortune id after the other settings", () => {
   assert.equal(
     settingsQuery({

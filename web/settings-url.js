@@ -1,7 +1,8 @@
-// Shareable page settings. Locale, cow, and category are accepted only when
-// they match the API's resource-name rule and an allow-list the caller already
-// loaded. A fortune id uses that same rule and a `<database>-<index>` shape.
-// Nothing returned here is safe to treat as HTML; callers must keep using text APIs.
+// Shareable page settings. Locale, cow, category, and length are accepted only
+// when they match the API's resource-name rule and an allow-list the caller
+// already loaded. Length is only `short` or `long`. A fortune id uses that
+// same rule and a `<database>-<index>` shape. Nothing returned here is safe to
+// treat as HTML; callers must keep using text APIs.
 
 const RESOURCE_NAME = /^[a-zA-Z0-9_.-]+$/;
 
@@ -48,11 +49,13 @@ export function fortuneParam(search) {
 }
 
 // Query string for the settings that differ from the defaults. Param order
-// matches the share link: locale, cow, category, then the exact fortune.
+// matches the share link: locale, cow, category, length, then the exact fortune.
+// `Any` is the empty length and stays off the URL.
 export function settingsQuery({
   locale,
   cow,
   category,
+  length,
   fortune,
   defaultLocale,
   defaultCow = "default",
@@ -62,6 +65,7 @@ export function settingsQuery({
     params.set("locale", locale);
   if (isResourceName(cow) && cow !== defaultCow) params.set("cow", cow);
   if (isResourceName(category)) params.set("category", category);
+  if (length === "short" || length === "long") params.set("length", length);
   if (isFortuneId(fortune)) params.set("fortune", fortune);
   const query = params.toString();
   return query ? `?${query}` : "";
