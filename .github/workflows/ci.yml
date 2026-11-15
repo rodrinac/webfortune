@@ -26,6 +26,7 @@ jobs:
       web: ${{ steps.out.outputs.web }}
       worker: ${{ steps.out.outputs.worker }}
       deploy_command: ${{ steps.out.outputs.deploy_command }}
+      npm_audit: ${{ steps.out.outputs.npm_audit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,6 +65,10 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
+            npm_audit:
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
       - name: Set outputs
         id: out
         run: |
@@ -73,14 +78,57 @@ jobs:
               echo "web=true"
               echo "worker=true"
               echo "deploy_command=true"
+              echo "npm_audit=true"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "web=${{ steps.filter.outputs.web }}"
               echo "worker=${{ steps.filter.outputs.worker }}"
               echo "deploy_command=${{ steps.filter.outputs.deploy_command }}"
+              echo "npm_audit=${{ steps.filter.outputs.npm_audit }}"
             } >> "$GITHUB_OUTPUT"
           fi
+
+  # PR-only: fail if the diff introduces or keeps a high/critical advisory.
+  # Push to main is covered by npm-audit and cargo audit in the worker job.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  npm-audit:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip (no npm lockfile changes)
+        if: needs.changes.outputs.npm_audit != 'true'
+        run: echo "No package-lock changes; skipping npm audit."
+
+      - if: needs.changes.outputs.npm_audit == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - if: needs.changes.outputs.npm_audit == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Keep --no-audit on npm ci elsewhere for speed; audit production deps once.
+      - if: needs.changes.outputs.npm_audit == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --omit=dev --audit-level=high
 
   web:
     needs: changes
@@ -167,6 +215,8 @@ jobs:
           nix develop --command bash -euo pipefail -c '
             npm ci --no-audit --no-fund
             cd worker
+            # Advisories ignored in .cargo/audit.toml must include a reason.
+            cargo audit
             cargo fmt --check
             cargo clippy --locked --all-targets -- -D warnings
             cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
