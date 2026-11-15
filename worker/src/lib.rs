@@ -246,6 +246,10 @@ mod runtime {
         response
             .headers_mut()
             .set("x-content-type-options", "nosniff")?;
+        response.headers_mut().set(
+            "strict-transport-security",
+            security::STRICT_TRANSPORT_SECURITY,
+        )?;
         Ok(response)
     }
 

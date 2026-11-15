@@ -8,4 +8,8 @@ test("main page CSP is enforced and refuses framing", async ({ page }) => {
   expect(policy).toContain("frame-ancestors 'none'");
   expect(headers["content-security-policy-report-only"]).toBeUndefined();
   expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+  const hsts = headers["strict-transport-security"] || "";
+  expect(hsts).toMatch(/max-age=(\d+)/);
+  expect(Number(hsts.match(/max-age=(\d+)/)[1])).toBeGreaterThanOrEqual(31536000);
+  expect(hsts.toLowerCase()).toContain("includesubdomains");
 });

@@ -14,6 +14,8 @@ Verify `webfortune.app` in the owner's GitHub Pages account settings and keep it
 
 `api.webfortune.app` is attached as a Worker custom domain via `worker/wrangler.jsonc` (`custom_domain: true`). DNS for that hostname is managed in Cloudflare.
 
+HSTS is owned in the repo: `worker/html-security-headers.txt` for HTML (also read by Vite preview), and `security::STRICT_TRANSPORT_SECURITY` on Worker API text, JSON, and `/og.png` responses (`max-age=31536000; includeSubDomains`). Keep the Cloudflare zone HSTS setting at least as strong so dashboard and Worker policies do not conflict. Do not enable `preload` or submit to hstspreload.org until every current and future subdomain is HTTPS-only.
+
 Workers Builds deploys the Worker for the release commit on `main`. It cannot trigger on git tags. Set the production build include path to `package.json` and leave the exclude list empty. The version bump always edits that file, and the build checks out the whole commit, so that one path is enough. A push that does not change `package.json` does not deploy.
 
 Leave the build command empty, set the deploy command to `npm run worker:deploy`, and leave the root directory as `/`. That script generates fortune assets, compiles the Wasm bundle, and runs `wrangler deploy`. Workers Builds does not run the custom build command in `worker/wrangler.jsonc`, and its image has no Rust or fortune data, so the script installs them when `nix develop` has not already put them on `PATH`. Cow figures are read from the Debian `.cow` files directly, so the build does not need Perl.
