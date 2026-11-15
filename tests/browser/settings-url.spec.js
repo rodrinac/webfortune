@@ -30,12 +30,17 @@ async function mockApi(page) {
     fortuneRequests.push(url.search);
     const category = url.searchParams.get("category");
     const locale = url.searchParams.get("locale");
+    const length = url.searchParams.get("length");
     const body =
       locale === "pt" && category === "love"
         ? "O amor da vaca é paciente."
-        : category
-          ? `Fortune about ${category}.`
-          : "A general fortune.";
+        : length === "short"
+          ? "Short fortune."
+          : length === "long"
+            ? "A long fortune from the far side of the pasture."
+            : category
+              ? `Fortune about ${category}.`
+              : "A general fortune.";
     return route.fulfill({ contentType: "text/plain", body });
   });
   return fortuneRequests;
@@ -197,4 +202,141 @@ test("uses the browser language when locale is missing or unknown", async ({
     .poll(() => page.evaluate(() => location.search))
     .toBe("?cow=tux");
   await context.close();
+});
+
+test("length picker filters fortunes and restores from the URL", async ({
+  page,
+}) => {
+  const fortuneRequests = await mockApi(page);
+  await page.goto("/");
+
+  await expect(page.locator("#length")).toBeEnabled();
+  await expect(page.locator("#length")).toHaveValue("");
+  await expect(page.locator("#length-label")).toHaveText("Length");
+  await expect(page.locator("#length option")).toHaveText(["Any", "Short", "Long"]);
+  await expect(page.locator("#fortune-text")).toHaveText("A general fortune.");
+  await expect(page.locator("#command")).toHaveText("fortune | cowsay");
+  expect(fortuneRequests[0]).toBe("?locale=en");
+  expect(new URL(page.url()).search).toBe("");
+
+  const historyLength = await page.evaluate(() => history.length);
+  await page.selectOption("#length", "short");
+  await expect(page.locator("#fortune-text")).toHaveText("Short fortune.");
+  await expect(page.locator("#command")).toHaveText("fortune -s | cowsay");
+  await expect.poll(() => page.evaluate(() => location.search)).toBe(
+    "?length=short",
+  );
+  expect(fortuneRequests.at(-1)).toBe("?locale=en&length=short");
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+  await page.reload();
+  await expect(page.locator("#length")).toHaveValue("short");
+  await expect(page.locator("#fortune-text")).toHaveText("Short fortune.");
+  expect(fortuneRequests.at(-1)).toBe("?locale=en&length=short");
+  expect(new URL(page.url()).search).toBe("?length=short");
+
+  await page.selectOption("#category", "wisdom");
+  await expect.poll(() => fortuneRequests.at(-1)).toBe(
+    "?locale=en&category=wisdom&length=short",
+  );
+  await expect.poll(() => page.evaluate(() => location.search)).toBe(
+    "?category=wisdom&length=short",
+  );
+  await expect(page.locator("#fortune-text")).toHaveText("Short fortune.");
+
+  await page.selectOption("#length", "long");
+  await expect(page.locator("#fortune-text")).toHaveText(
+    "A long fortune from the far side of the pasture.",
+  );
+  await expect(page.locator("#command")).toHaveText("fortune -l wisdom | cowsay");
+  await expect.poll(() => page.evaluate(() => location.search)).toBe(
+    "?category=wisdom&length=long",
+  );
+  expect(fortuneRequests.at(-1)).toBe("?locale=en&category=wisdom&length=long");
+
+  await page.selectOption("#length", "");
+  await expect(page.locator("#fortune-text")).toHaveText("Fortune about wisdom.");
+  await expect(page.locator("#command")).toHaveText("fortune wisdom | cowsay");
+  await expect.poll(() => page.evaluate(() => location.search)).toBe(
+    "?category=wisdom",
+  );
+  expect(fortuneRequests.at(-1)).toBe("?locale=en&category=wisdom");
+
+  const labels = {
+    de: ["Länge", ["Beliebig", "Kurz", "Lang"]],
+    es: ["Longitud", ["Cualquiera", "Corta", "Larga"]],
+    pt: ["Tamanho", ["Qualquer", "Curta", "Longa"]],
+  };
+  for (const [locale, [label, options]] of Object.entries(labels)) {
+    await page.goto(`/?locale=${locale}&length=short`);
+    await expect(page.locator("#length")).toHaveValue("short");
+    await expect(page.locator("#length-label")).toHaveText(label);
+    await expect(page.locator("#length option")).toHaveText(options);
+    await expect(page.locator("#fortune-text")).toHaveText("Short fortune.");
+    expect(new URL(page.url()).search).toBe(`?locale=${locale}&length=short`);
+    expect(fortuneRequests.at(-1)).toBe(`?locale=${locale}&length=short`);
+  }
+
+  await page.goto("/?length=medium");
+  await expect(page.locator("#length")).toHaveValue("");
+  await expect(page.locator("#fortune-text")).toHaveText("A general fortune.");
+  expect(new URL(page.url()).search).toBe("");
+  expect(fortuneRequests.at(-1)).toBe("?locale=en");
+
+  await page.goto("/?length=SHORT");
+  await expect(page.locator("#length")).toHaveValue("");
+  expect(new URL(page.url()).search).toBe("");
+
+  await page.goto("/?length=short&length=long");
+  await expect(page.locator("#length")).toHaveValue("");
+  expect(new URL(page.url()).search).toBe("");
+  expect(fortuneRequests.at(-1)).toBe("?locale=en");
+
+  await page.goto("/?length=long&length=long");
+  await expect(page.locator("#length")).toHaveValue("");
+  expect(fortuneRequests.at(-1)).not.toContain("length=");
+
+  await page.goto("/?locale=pt&cow=tux&category=love&length=nope");
+  await expect(page.locator("#length")).toHaveValue("");
+  await expect(page.locator("#category")).toHaveValue("love");
+  expect(new URL(page.url()).search).toBe("?locale=pt&cow=tux&category=love");
+  expect(fortuneRequests.at(-1)).toBe("?locale=pt&category=love");
+});
+
+test("disables the length picker while a fortune is loading", async ({
+  page,
+}) => {
+  await mockApi(page);
+  let fortuneLoads = 0;
+  const pending = [];
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const isFortune =
+      !path.endsWith("locales") &&
+      !path.endsWith("categories") &&
+      !path.includes("/cows");
+    if (isFortune && ++fortuneLoads > 1)
+      await new Promise((resolve) => pending.push(resolve));
+    await route.fallback();
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#fortune-text")).toHaveText("A general fortune.");
+  await expect(page.locator("#length")).toBeEnabled();
+
+  const selection = page.selectOption("#length", "long");
+  await expect(page.locator("#length")).toBeDisabled();
+  await expect(page.locator("#locale")).toBeDisabled();
+  await expect(page.locator("#category")).toBeDisabled();
+  await expect(page.locator("#cow-style")).toBeDisabled();
+  await expect(page.locator("#refresh")).toBeDisabled();
+  await expect.poll(() => pending.length).toBe(1);
+  pending.shift()();
+  await selection;
+  await expect(page.locator("#fortune-text")).toHaveText(
+    "A long fortune from the far side of the pasture.",
+  );
+  await expect(page.locator("#length")).toBeEnabled();
+  await expect(page.locator("#length")).toHaveValue("long");
+  await expect(page.locator("#locale")).toBeEnabled();
 });
