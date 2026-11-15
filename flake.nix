@@ -127,6 +127,7 @@
           default = pkgs.mkShell {
             packages = [
               rustToolchain
+              pkgs.cargo-audit
               pkgs.worker-build
               pkgs.nodejs_24
               fortuneData
