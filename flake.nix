@@ -128,7 +128,9 @@
             packages = [
               rustToolchain
               pkgs.cargo-audit
-              pkgs.worker-build
+              # nixpkgs still ships worker-build 0.8.7; worker 0.9.0 needs
+              # worker-build 0.9.0. scripts/worker-deploy.mjs installs the pin
+              # from WORKER_BUILD_VERSION when PATH has a mismatch or nothing.
               pkgs.nodejs_24
               fortuneData
             ];

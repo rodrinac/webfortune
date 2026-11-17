@@ -265,8 +265,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.rustup
-          key: worker-build-0.8.7-${{ runner.os }}
+          key: worker-build-0.9.0-${{ runner.os }}
           restore-keys: |
-            worker-build-0.8.7-${{ runner.os }}-
+            worker-build-0.9.0-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
       - run: npm run worker:deploy -- --dry-run --outdir ../build/worker-dry-run

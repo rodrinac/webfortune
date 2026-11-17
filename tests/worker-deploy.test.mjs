@@ -3,19 +3,68 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deploy, ensureWorkerBuild } from "../scripts/worker-deploy.mjs";
+import {
+  WORKER_BUILD_VERSION,
+  deploy,
+  ensureWorkerBuild,
+} from "../scripts/worker-deploy.mjs";
 
-test("uses worker-build already on PATH", () => {
+test("uses matching worker-build already on PATH", () => {
   const bin = mkdtempSync(join(tmpdir(), "worker-build-"));
-  writeFileSync(join(bin, "worker-build"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(join(bin, "worker-build"), "#!/bin/sh\nexit 0\n", {
+    mode: 0o755,
+  });
   chmodSync(join(bin, "worker-build"), 0o755);
   const env = ensureWorkerBuild({
     env: { HOME: join(bin, "home"), PATH: bin },
-    run: () => {
+    run: (command, args) => {
+      if (String(command).endsWith("worker-build") && args?.[0] === "--version") {
+        return `${WORKER_BUILD_VERSION}\n`;
+      }
       throw new Error("toolchain install should not run");
     },
   });
   assert.equal(env.PATH, bin);
+});
+
+test("reinstalls worker-build when PATH has a mismatched version", () => {
+  const bin = mkdtempSync(join(tmpdir(), "worker-build-mismatch-"));
+  writeFileSync(join(bin, "worker-build"), "#!/bin/sh\nexit 0\n", {
+    mode: 0o755,
+  });
+  chmodSync(join(bin, "worker-build"), 0o755);
+  const calls = [];
+  assert.throws(
+    () =>
+      ensureWorkerBuild({
+        env: {
+          HOME: join(bin, "home"),
+          PATH: `${bin}:/usr/bin`,
+        },
+        run: (command, args) => {
+          calls.push({ command, args });
+          if (
+            String(command).endsWith("worker-build") &&
+            args?.[0] === "--version"
+          ) {
+            return "0.8.7\n";
+          }
+        },
+      }),
+    /not on PATH/,
+  );
+  const install = calls.find(
+    (call) => call.command === "cargo" && call.args?.[0] === "install",
+  );
+  assert.ok(install);
+  assert.deepEqual(install.args, [
+    "install",
+    "worker-build",
+    "--version",
+    WORKER_BUILD_VERSION,
+    "--locked",
+    "--force",
+  ]);
 });
 
 test("installs rustup and worker-build when both are missing", () => {
