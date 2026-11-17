@@ -11,16 +11,20 @@ import { generate } from "./generate-worker-assets.mjs";
 
 // Matches the `worker` crate in worker/Cargo.toml. Workers Builds runs this
 // script as its only command and does not run wrangler's custom build.
-export const WORKER_BUILD_VERSION = "0.8.7";
+export const WORKER_BUILD_VERSION = "0.9.0";
 
 export function repoRoot() {
   return fileURLToPath(new URL("..", import.meta.url));
 }
 
-function opensslReady() {
-  if (!resolveCommand("pkg-config")) return false;
+function opensslReady(env) {
+  const pkgConfig = resolveCommand("pkg-config", env);
+  if (!pkgConfig) return false;
   try {
-    execFileSync("pkg-config", ["--exists", "openssl"], { stdio: "ignore" });
+    execFileSync(pkgConfig, ["--exists", "openssl"], {
+      env,
+      stdio: "ignore",
+    });
     return true;
   } catch {
     return false;
@@ -42,13 +46,33 @@ function wasmTargetReady(env) {
   }
 }
 
+function workerBuildVersion(env, run) {
+  const bin = resolveCommand("worker-build", env);
+  if (!bin) return null;
+  try {
+    const out = run(bin, ["--version"], {
+      env,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return String(out).trim();
+  } catch {
+    return null;
+  }
+}
+
+function hasRequiredWorkerBuild(env, run) {
+  return workerBuildVersion(env, run) === WORKER_BUILD_VERSION;
+}
+
 export function ensureWorkerBuild({ env, run = execFileSync }) {
   const cargoBin = env.HOME ? join(env.HOME, ".cargo/bin") : null;
   let next = { ...env };
-  if (resolveCommand("worker-build", next)) return next;
-  if (cargoBin && existsSync(join(cargoBin, "worker-build")))
+  if (hasRequiredWorkerBuild(next, run)) return next;
+  if (cargoBin && existsSync(join(cargoBin, "worker-build"))) {
     next = { ...next, PATH: `${cargoBin}${delimiter}${next.PATH ?? ""}` };
-  if (resolveCommand("worker-build", next)) return next;
+    if (hasRequiredWorkerBuild(next, run)) return next;
+  }
   if (!env.HOME)
     throw new Error("HOME is required to install the Rust wasm toolchain.");
   if (!resolveCommand("cargo", next)) {
@@ -72,17 +96,24 @@ export function ensureWorkerBuild({ env, run = execFileSync }) {
       stdio: "inherit",
     });
   }
-  if (!resolveCommand("worker-build", next)) {
-    if (!opensslReady() && resolveCommand("apt-get", next))
+  if (!hasRequiredWorkerBuild(next, run)) {
+    if (!opensslReady(next) && resolveCommand("apt-get", next))
       aptInstall(["pkg-config", "libssl-dev"], run);
     run(
       "cargo",
-      ["install", "worker-build", "--version", WORKER_BUILD_VERSION, "--locked"],
+      [
+        "install",
+        "worker-build",
+        "--version",
+        WORKER_BUILD_VERSION,
+        "--locked",
+        "--force",
+      ],
       { env: next, stdio: "inherit" },
     );
     next = { ...next, PATH: `${cargoBin}${delimiter}${next.PATH ?? ""}` };
   }
-  if (!resolveCommand("worker-build", next)) {
+  if (!hasRequiredWorkerBuild(next, run)) {
     throw new Error(
       `worker-build ${WORKER_BUILD_VERSION} is not on PATH after installation.`,
     );
