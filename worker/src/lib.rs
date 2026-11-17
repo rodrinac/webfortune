@@ -134,6 +134,16 @@ mod runtime {
             .is_ok_and(|outcome| outcome.success)
     }
 
+    /// UTC calendar day `YYYY-MM-DD`. `toISOString` is UTC, so the day changes
+    /// at 00:00 UTC rather than in the visitor's local timezone.
+    fn utc_calendar_date() -> String {
+        let iso = js_sys::Date::new_0()
+            .to_iso_string()
+            .as_string()
+            .unwrap_or_default();
+        iso.get(..10).unwrap_or("").to_string()
+    }
+
     #[event(fetch)]
     async fn fetch(request: Request, env: Env, _context: Context) -> Result<Response> {
         let url = request.url()?;
@@ -153,13 +163,16 @@ mod runtime {
         } else {
             match manifest(&assets).await {
                 Some(manifest) => {
-                    let action = api::handle(
-                        &method,
-                        url.path(),
-                        url.query(),
-                        &manifest,
-                        js_sys::Math::random(),
-                    );
+                    let today = utc_calendar_date();
+                    // A daily request draws from the UTC date inside `handle_at`.
+                    // `Math.random` would make two calls on the same day disagree.
+                    let random = if api::requests_daily_fortune(url.path(), url.query()) {
+                        0.0
+                    } else {
+                        js_sys::Math::random()
+                    };
+                    let action =
+                        api::handle_at(&method, url.path(), url.query(), &manifest, random, &today);
                     match action {
                         Action::OgImage(image) => {
                             return og_png_response(image, &assets, &request, &env, &method).await;
