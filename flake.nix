@@ -131,6 +131,10 @@
               # nixpkgs still ships worker-build 0.8.7; worker 0.9.0 needs
               # worker-build 0.9.0. scripts/worker-deploy.mjs installs the pin
               # from WORKER_BUILD_VERSION when PATH has a mismatch or nothing.
+              # pkg-config + openssl let that cargo install link against Nix OpenSSL
+              # instead of broken host /usr/include/openssl headers.
+              pkgs.pkg-config
+              pkgs.openssl
               pkgs.nodejs_24
               fortuneData
             ];

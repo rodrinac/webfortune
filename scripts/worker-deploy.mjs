@@ -17,10 +17,14 @@ export function repoRoot() {
   return fileURLToPath(new URL("..", import.meta.url));
 }
 
-function opensslReady() {
-  if (!resolveCommand("pkg-config")) return false;
+function opensslReady(env) {
+  const pkgConfig = resolveCommand("pkg-config", env);
+  if (!pkgConfig) return false;
   try {
-    execFileSync("pkg-config", ["--exists", "openssl"], { stdio: "ignore" });
+    execFileSync(pkgConfig, ["--exists", "openssl"], {
+      env,
+      stdio: "ignore",
+    });
     return true;
   } catch {
     return false;
@@ -93,7 +97,7 @@ export function ensureWorkerBuild({ env, run = execFileSync }) {
     });
   }
   if (!hasRequiredWorkerBuild(next, run)) {
-    if (!opensslReady() && resolveCommand("apt-get", next))
+    if (!opensslReady(next) && resolveCommand("apt-get", next))
       aptInstall(["pkg-config", "libssl-dev"], run);
     run(
       "cargo",
