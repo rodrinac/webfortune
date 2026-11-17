@@ -131,6 +131,8 @@ struct FortuneQuery<'a> {
     format: ResponseFormat<'a>,
     /// Unfiltered unless this is `GET /` and `length` is `short` or `long`.
     length: Option<FortuneLength>,
+    /// Draw from the UTC date instead of the caller's random number.
+    daily: bool,
 }
 
 const TEXT: &str = "text/plain; charset=utf-8";
@@ -276,7 +278,7 @@ fn parse_query<'a>(
     manifest: &Manifest,
     query: Option<&'a str>,
 ) -> Result<FortuneQuery<'a>, &'static str> {
-    parse_query_with(manifest, query, false, false, false)
+    parse_query_with(manifest, query, false, false, false, false)
 }
 
 fn parse_query_with<'a>(
@@ -285,6 +287,7 @@ fn parse_query_with<'a>(
     allow_fortune: bool,
     allow_format: bool,
     allow_length: bool,
+    allow_daily: bool,
 ) -> Result<FortuneQuery<'a>, &'static str> {
     let Some(query) = query else {
         return Ok(FortuneQuery {
@@ -293,6 +296,7 @@ fn parse_query_with<'a>(
             fortune: None,
             format: ResponseFormat::Text,
             length: None,
+            daily: false,
         });
     };
 
@@ -306,6 +310,7 @@ fn parse_query_with<'a>(
     let mut response_format = None;
     let mut cow = None;
     let mut length = None;
+    let mut daily = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
             return Err("Malformed query string.\n");
@@ -317,6 +322,7 @@ fn parse_query_with<'a>(
             "format" if allow_format && response_format.replace(value).is_none() => {}
             "cow" if allow_cow && cow.replace(value).is_none() => {}
             "length" if allow_length && length.replace(value).is_none() => {}
+            "daily" if allow_daily && daily.replace(value).is_none() => {}
             _ => return Err("Only one locale and category parameter are supported.\n"),
         }
     }
@@ -356,9 +362,18 @@ fn parse_query_with<'a>(
         Some("long") => Some(FortuneLength::Long),
         Some(_) => return Err("Invalid length.\n"),
     };
+    let daily = match daily {
+        None => false,
+        Some("true") => true,
+        Some(_) => return Err("Invalid daily.\n"),
+    };
     // A pinned id names one fortune, so a length filter has nothing to choose.
     if length.is_some() && fortune.is_some() {
         return Err("Length cannot be combined with fortune.\n");
+    }
+    // A pinned id also leaves a daily draw with nothing to choose.
+    if daily && fortune.is_some() {
+        return Err("Daily cannot be combined with fortune.\n");
     }
 
     Ok(FortuneQuery {
@@ -367,6 +382,7 @@ fn parse_query_with<'a>(
         fortune,
         format,
         length,
+        daily,
     })
 }
 
@@ -386,6 +402,67 @@ fn cowsay_format(query: &str) -> bool {
 
 fn find_locale<'a>(manifest: &'a Manifest, id: &str) -> Option<&'a Locale> {
     manifest.locales.iter().find(|locale| locale.id == id)
+}
+
+const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x100000001b3;
+
+fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+fn length_label(length: Option<FortuneLength>) -> &'static str {
+    match length {
+        None => "",
+        Some(FortuneLength::Short) => "short",
+        Some(FortuneLength::Long) => "long",
+    }
+}
+
+/// Maps one UTC calendar date and the filters `select` uses onto `[0, 1)`.
+///
+/// `date` is `YYYY-MM-DD`. `length` is empty when the request omits `length`,
+/// and `short` or `long` otherwise. The same inputs always return the same
+/// value on any host. No clock or wasm API is read here.
+pub fn daily_unit(date: &str, locale: &str, category: &str, length: &str) -> f64 {
+    let mut hash = FNV_OFFSET;
+    for field in [date, locale, category, length] {
+        hash = fnv1a(hash, &(field.len() as u64).to_le_bytes());
+        hash = fnv1a(hash, field.as_bytes());
+    }
+    // The top 53 bits are an exact `f64` integer, so dividing by 2^53 stays
+    // inside `[0, 1)` on every IEEE-754 platform.
+    let mantissa = hash >> 11;
+    (mantissa as f64) / ((1u64 << 53) as f64)
+}
+
+/// `GET /` or `HEAD /` with one `daily=true` parameter. The runtime then
+/// skips `Math.random`; selection hashes the UTC date instead.
+pub fn requests_daily_fortune(path: &str, query: Option<&str>) -> bool {
+    if path != "/" {
+        return false;
+    }
+    let Some(query) = query else {
+        return false;
+    };
+    let mut seen = false;
+    for parameter in query.split('&') {
+        let Some((name, value)) = parameter.split_once('=') else {
+            return false;
+        };
+        if name != "daily" {
+            continue;
+        }
+        if seen || value != "true" {
+            return false;
+        }
+        seen = true;
+    }
+    seen
 }
 
 /// Maps `random` onto `0..total`. A value of `1.0` still lands on the last slot.
@@ -518,8 +595,8 @@ fn apply_format(action: Action, format: ResponseFormat<'_>) -> Action {
     }
 }
 
-fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
-    let query = match parse_query_with(manifest, query, true, true, true) {
+fn fortune(manifest: &Manifest, query: Option<&str>, random: f64, today: &str) -> Action {
+    let query = match parse_query_with(manifest, query, true, true, true, true) {
         Ok(query) => query,
         Err(error) => return Action::Reply(text(400, error)),
     };
@@ -536,7 +613,17 @@ fn fortune(manifest: &Manifest, query: Option<&str>, random: f64) -> Action {
     {
         return Action::Reply(text(404, "Fortune category not found.\n"));
     } else {
-        match select(locale, query.category, query.length, random) {
+        let draw = if query.daily {
+            daily_unit(
+                today,
+                query.locale,
+                query.category,
+                length_label(query.length),
+            )
+        } else {
+            random
+        };
+        match select(locale, query.category, query.length, draw) {
             Some((database, index)) => Action::Fortune {
                 locale: locale.id.clone(),
                 database: database.to_string(),
@@ -560,6 +647,21 @@ pub fn handle(
     query: Option<&str>,
     manifest: &Manifest,
     random: f64,
+) -> Action {
+    // No calendar day: a `daily=true` request hashes an empty date. Callers
+    // that serve the fortune of the day pass the UTC date to `handle_at`.
+    handle_at(method, path, query, manifest, random, "")
+}
+
+/// `today` is the UTC calendar date `YYYY-MM-DD`. A `daily=true` request on
+/// `/` uses it, with locale, category, and length, in place of `random`.
+pub fn handle_at(
+    method: &str,
+    path: &str,
+    query: Option<&str>,
+    manifest: &Manifest,
+    random: f64,
+    today: &str,
 ) -> Action {
     if method == "OPTIONS" {
         return Action::Reply(Reply {
@@ -609,7 +711,7 @@ pub fn handle(
             ),
             Err(error) => text(400, error),
         },
-        "/" => return fortune(manifest, query, random),
+        "/" => return fortune(manifest, query, random, today),
         "/og.png" => match og_image(manifest, query) {
             Ok(image) => return Action::OgImage(image),
             Err(reply) => reply,
@@ -1185,6 +1287,12 @@ mod tests {
             ("/", Some("length=short&fortune=art-0")),
             ("/", Some("length=short&format=json")),
             ("/", Some("length=long&format=cowsay&cow=tux")),
+            ("/", Some("daily=true")),
+            ("/", Some("daily=true&category=art&format=json")),
+            ("/", Some("daily=true&locale=pt&format=cowsay&cow=tux")),
+            ("/", Some("daily=true&length=short")),
+            ("/", Some("daily=nope")),
+            ("/", Some("daily=true&fortune=art-0")),
             ("/", Some("format=cowsay&cow=moose")),
             ("/", Some("format=cowsay&cow=../etc")),
             ("/health", None),
@@ -2169,5 +2277,407 @@ mod tests {
             (404, "No fortune of that length.\n")
         );
         assert!(matches!(get("/", None), Action::Fortune { .. }));
+    }
+
+    fn on_date(manifest: &Manifest, query: &str, random: f64, today: &str) -> Action {
+        handle_at("GET", "/", Some(query), manifest, random, today)
+    }
+
+    fn sample_dates() -> Vec<String> {
+        let mut dates = Vec::new();
+        for year in [2020, 2024, 2026, 2028] {
+            for month in 1..=12 {
+                dates.push(format!("{year}-{month:02}-01"));
+                dates.push(format!("{year}-{month:02}-17"));
+            }
+        }
+        dates
+    }
+
+    fn fortune_key(action: &Action) -> (String, String, usize) {
+        match action {
+            Action::Fortune {
+                locale,
+                database,
+                index,
+            }
+            | Action::FortuneJson {
+                locale,
+                database,
+                index,
+            }
+            | Action::FortuneCowsay {
+                locale,
+                database,
+                index,
+                ..
+            } => (locale.clone(), database.clone(), *index),
+            other => panic!("expected a fortune, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daily_unit_stays_in_range_and_tracks_the_date_and_filters() {
+        let date = "2026-11-17";
+        let base = daily_unit(date, "en", "", "");
+        assert!((0.0..1.0).contains(&base), "{base}");
+        assert_eq!(base, daily_unit(date, "en", "", ""));
+        assert_ne!(base, daily_unit("2026-11-18", "en", "", ""));
+        assert_ne!(base, daily_unit(date, "pt", "", ""));
+        assert_ne!(base, daily_unit(date, "en", "art", ""));
+        assert_ne!(base, daily_unit(date, "en", "", "short"));
+        assert_ne!(base, daily_unit(date, "en", "", "long"));
+        // Field boundaries are part of the hash, so adjacent fields cannot alias.
+        assert_ne!(
+            daily_unit(date, "en", "art", "short"),
+            daily_unit(date, "ena", "rt", "short")
+        );
+
+        let mut units = Vec::new();
+        for today in sample_dates() {
+            let unit = daily_unit(&today, "en", "zippy", "long");
+            assert!((0.0..1.0).contains(&unit), "{today} {unit}");
+            units.push(unit);
+        }
+        assert!(
+            units.iter().any(|unit| unit != &units[0]),
+            "every sample date hashed to the same draw"
+        );
+
+        assert!(requests_daily_fortune("/", Some("daily=true")));
+        assert!(requests_daily_fortune(
+            "/",
+            Some("locale=en&daily=true&length=short")
+        ));
+        assert!(!requests_daily_fortune("/", None));
+        assert!(!requests_daily_fortune("/", Some("daily=false")));
+        assert!(!requests_daily_fortune("/", Some("daily=true&daily=true")));
+        assert!(!requests_daily_fortune("/categories", Some("daily=true")));
+        assert!(!requests_daily_fortune("/og.png", Some("daily=true")));
+    }
+
+    #[test]
+    fn daily_fortune_matches_the_weighted_draw_for_that_utc_date() {
+        let manifest = manifest();
+        let dates = sample_dates();
+        // These two draws land on different fortunes, so a daily request that
+        // still used the caller's random number would fail the equality below.
+        assert_ne!(
+            handle("GET", "/", None, &manifest, 0.0),
+            handle("GET", "/", None, &manifest, 0.999)
+        );
+        let mut picks = Vec::new();
+        for today in &dates {
+            let unit = daily_unit(today, "en", "", "");
+            let daily = on_date(&manifest, "daily=true", 0.0, today);
+            let again = on_date(&manifest, "locale=en&daily=true", 0.999, today);
+            let random = handle("GET", "/", None, &manifest, unit);
+            assert_eq!(daily, again, "{today}");
+            assert_eq!(daily, random, "{today}");
+            picks.push(fortune_key(&daily));
+        }
+        let reply = with_fortune_id(text(200, "body\n"), &picks[0].1, picks[0].2);
+        assert!(reply
+            .headers
+            .contains(&("x-fortune-id", fortune_id(&picks[0].1, picks[0].2))));
+        assert!(reply
+            .headers
+            .contains(&("cache-control", "no-store".to_string())));
+        assert!(
+            picks.iter().any(|pick| pick != &picks[0]),
+            "sample dates all selected {}",
+            fortune_id(&picks[0].1, picks[0].2)
+        );
+
+        let today = "2026-06-15";
+        for (query, plain, locale, category, length) in [
+            ("daily=true&category=art", "category=art", "en", "art", ""),
+            (
+                "daily=true&category=zippy&locale=en",
+                "locale=en&category=zippy",
+                "en",
+                "zippy",
+                "",
+            ),
+            ("daily=true&locale=pt", "locale=pt", "pt", "", ""),
+            ("category=art&daily=true", "category=art", "en", "art", ""),
+        ] {
+            let unit = daily_unit(today, locale, category, length);
+            assert_eq!(
+                on_date(&manifest, query, 0.15, today),
+                handle("GET", "/", Some(plain), &manifest, unit),
+                "{query}"
+            );
+        }
+
+        // Parameter order and the caller's random number do not change the day.
+        assert_eq!(
+            on_date(&manifest, "daily=true&locale=pt&category=", 0.1, today),
+            on_date(&manifest, "locale=pt&daily=true", 0.9, today)
+        );
+        assert_eq!(
+            handle_at(
+                "HEAD",
+                "/",
+                Some("daily=true&locale=pt"),
+                &manifest,
+                0.2,
+                today
+            ),
+            on_date(&manifest, "daily=true&locale=pt", 0.8, today)
+        );
+
+        let json = on_date(
+            &manifest,
+            "daily=true&category=zippy&format=json",
+            0.3,
+            today,
+        );
+        assert!(matches!(json, Action::FortuneJson { .. }));
+        assert_eq!(
+            fortune_key(&json),
+            fortune_key(&on_date(&manifest, "daily=true&category=zippy", 0.7, today))
+        );
+        match on_date(
+            &manifest,
+            "format=cowsay&cow=tux&daily=true&category=art",
+            0.4,
+            today,
+        ) {
+            Action::FortuneCowsay {
+                cow,
+                locale,
+                database,
+                index,
+            } => {
+                assert_eq!(cow, "tux");
+                assert_eq!(
+                    (locale, database, index),
+                    fortune_key(&on_date(&manifest, "daily=true&category=art", 0.6, today))
+                );
+            }
+            other => panic!("expected cowsay, got {other:?}"),
+        }
+        match on_date(&manifest, "daily=true&format=cowsay", 0.5, today) {
+            Action::FortuneCowsay { cow, .. } => assert_eq!(cow, "default"),
+            other => panic!("expected default cow, got {other:?}"),
+        }
+
+        let length_manifest = length_manifest();
+        for (query, plain, locale, category, length) in [
+            ("daily=true&length=short", "length=short", "en", "", "short"),
+            (
+                "length=long&daily=true&category=poem",
+                "category=poem&length=long",
+                "en",
+                "poem",
+                "long",
+            ),
+            (
+                "locale=pt&daily=true&length=long",
+                "locale=pt&length=long",
+                "pt",
+                "",
+                "long",
+            ),
+            (
+                "daily=true&category=zippy&length=short",
+                "category=zippy&length=short",
+                "en",
+                "zippy",
+                "short",
+            ),
+        ] {
+            let unit = daily_unit(today, locale, category, length);
+            let daily = on_date(&length_manifest, query, 0.01, today);
+            assert_eq!(
+                daily,
+                handle("GET", "/", Some(plain), &length_manifest, unit),
+                "{query}"
+            );
+            assert_eq!(daily, on_date(&length_manifest, query, 0.99, today));
+        }
+        let short_json = on_date(
+            &length_manifest,
+            "daily=true&length=short&format=json",
+            0.2,
+            today,
+        );
+        assert!(matches!(short_json, Action::FortuneJson { .. }));
+        assert_eq!(
+            fortune_key(&short_json),
+            fortune_key(&on_date(
+                &length_manifest,
+                "daily=true&length=short",
+                0.8,
+                today
+            ))
+        );
+        match on_date(
+            &length_manifest,
+            "daily=true&length=long&format=cowsay&cow=tux&category=art",
+            0.25,
+            today,
+        ) {
+            Action::FortuneCowsay {
+                cow,
+                locale,
+                database,
+                index,
+            } => {
+                assert_eq!(cow, "tux");
+                assert_eq!(
+                    Action::Fortune {
+                        locale,
+                        database,
+                        index,
+                    },
+                    on_date(
+                        &length_manifest,
+                        "category=art&length=long&daily=true",
+                        0.75,
+                        today
+                    )
+                );
+            }
+            other => panic!("expected cowsay, got {other:?}"),
+        }
+
+        // A date with no matching length list is the same 404 as a random draw.
+        let missing = reply_of(on_date(&manifest, "daily=true&length=long", 0.4, today));
+        assert_eq!(
+            (missing.status, missing.body.as_str()),
+            (404, "No fortune of that length.\n")
+        );
+        let unknown = reply_of(on_date(&manifest, "daily=true&category=nope", 0.4, today));
+        assert_eq!(
+            (unknown.status, unknown.body.as_str()),
+            (404, "Fortune category not found.\n")
+        );
+        let cow = reply_of(on_date(
+            &manifest,
+            "daily=true&format=cowsay&cow=moose",
+            0.4,
+            today,
+        ));
+        assert_eq!((cow.status, cow.body.as_str()), (404, "Cow not found.\n"));
+    }
+
+    #[test]
+    fn invalid_daily_and_daily_with_fortune_are_rejected() {
+        for query in [
+            "daily=",
+            "daily=false",
+            "daily=1",
+            "daily=TRUE",
+            "daily=True",
+            "daily=yes",
+            "daily=true ",
+            "daily=true\n",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Invalid daily.\n"),
+                "{query}"
+            );
+            assert!(reply
+                .headers
+                .contains(&("cache-control", "no-store".to_string())));
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        for query in [
+            "daily=true&daily=true",
+            "daily=true&daily=false",
+            "daily=false&daily=true",
+            "DAILY=true",
+            "daily=true&cow=tux",
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (
+                    400,
+                    "Only one locale and category parameter are supported.\n"
+                ),
+                "{query}"
+            );
+        }
+
+        for query in [
+            "daily=true&fortune=art-0",
+            "fortune=zippy-2&daily=true",
+            "daily=true&format=json&fortune=art-1",
+            "format=cowsay&cow=tux&daily=true&fortune=zippy-2",
+            "locale=pt&daily=true&fortune=brasil-3",
+            "category=art&daily=true&fortune=art-0&format=json",
+            "daily=true&fortune=art-99",
+        ] {
+            let reply = reply_of(on_date(&manifest(), query, 0.2, "2026-01-02"));
+            assert_eq!(
+                (reply.status, reply.body.as_str()),
+                (400, "Daily cannot be combined with fortune.\n"),
+                "{query}"
+            );
+            assert!(reply.headers.iter().any(|(name, value)| {
+                *name == "content-type" && value.starts_with("text/plain")
+            }));
+        }
+
+        // Length is validated first, so a request that breaks both rules keeps
+        // the length error. Syntax errors are still reported before either.
+        let both = reply_of(get("/", Some("daily=true&length=short&fortune=art-0")));
+        assert_eq!(
+            (both.status, both.body.as_str()),
+            (400, "Length cannot be combined with fortune.\n")
+        );
+        for (query, body) in [
+            ("daily", "Malformed query string.\n"),
+            ("daily=true&fortune=art-01", "Invalid fortune.\n"),
+            ("daily=nope&fortune=art-0", "Invalid daily.\n"),
+            ("daily=true&locale=fr", "Unsupported locale.\n"),
+            ("daily=nope&locale=fr", "Unsupported locale.\n"),
+            ("daily=true&category=../etc", "Invalid category.\n"),
+            ("format=xml&daily=true", "Invalid format.\n"),
+            ("daily=true&length=nope", "Invalid length.\n"),
+            ("daily=true&format=cowsay&cow=../etc", "Invalid cow.\n"),
+        ] {
+            let reply = reply_of(get("/", Some(query)));
+            assert_eq!((reply.status, reply.body.as_str()), (400, body), "{query}");
+        }
+
+        assert_eq!(
+            reply_of(get("/categories", Some("daily=true"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/categories", Some("locale=en&daily=true"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("daily=true"))).body,
+            "Only one locale, category, cow, and fortune parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/og.png", Some("cow=tux&daily=true"))).body,
+            "Only one locale, category, cow, and fortune parameter are supported.\n"
+        );
+        // Routes that ignore the query string still ignore `daily`.
+        assert_eq!(reply_of(get("/health", Some("daily=true"))).status, 200);
+        assert_eq!(
+            reply_of(get("/locales", Some("daily=true"))).status,
+            reply_of(get("/locales", None)).status
+        );
+        assert_eq!(
+            reply_of(get("/cows", Some("daily=true"))).body,
+            reply_of(get("/cows", None)).body
+        );
+        assert_eq!(
+            get("/cows/tux", Some("daily=true")),
+            Action::Cow("tux".to_string())
+        );
     }
 }
