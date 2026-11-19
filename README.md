@@ -12,7 +12,7 @@ Production: [webfortune.app](https://webfortune.app/)
 | Español | Português |
 | ![Spanish fortune](docs/screenshots/webfortune-es.png) | ![Portuguese fortune](docs/screenshots/webfortune-pt.png) |
 
-The browser renders fortunes in a responsive cowsay-style ASCII bubble, with cow and category selection, copy, keyboard shortcuts, and accessible loading/error states. Fortune text is always rendered as text, never HTML.
+The browser renders fortunes in a responsive cowsay-style ASCII bubble, with cow, category, and length choices, a Fortune of the day switch, copy, keyboard shortcuts, and accessible loading/error states. Fortune text is always rendered as text, never HTML.
 
 ## Local development
 
@@ -52,7 +52,7 @@ A fortune id is `<database>-<index>`. The index is a decimal with no leading zer
 
 `daily=true` on `GET /` and `HEAD /` is the fortune of the UTC day. Selection uses the same weights as a random request, so `locale`, `category`, and `length` still filter the draw, but the number comes from the UTC date (`YYYY-MM-DD`) together with those filters instead of a new random value. The same date and the same filters return the same fortune. A different UTC date can return a different one. The day changes at 00:00 UTC. `format=json` and `format=cowsay` (including `cow`) wrap that fortune the same way they wrap a random one, and `x-fortune-id` is still the chosen id. Responses keep the usual headers, including `cache-control: no-store`. The only accepted `daily` value is `true`. Any other value is 400. A repeated `daily` is rejected like any other repeated parameter. `daily=true` together with `fortune` is 400, because a pinned id leaves nothing to choose. `daily` is rejected on `/categories`, `/og.png`, and any other route that already rejects unknown parameters.
 
-The page stores the served id in a `fortune` query parameter, next to `locale`, `cow`, and `category`. The copy button includes that URL, so opening it shows the same fortune. Refresh and Space request a new random fortune and replace the id. An invalid or unknown id falls back to a random fortune.
+The page stores the served id in a `fortune` query parameter, next to `locale`, `cow`, `category`, and `length`. The copy button includes that URL, so opening it shows the same fortune. Refresh and Space request a new random fortune and replace the id. An invalid or unknown id falls back to a random fortune. Fortune of the day stores `daily=true` with those filters and leaves the fortune id off the request and the share link. Refresh and Space then reload that same daily fortune. An invalid `daily` value is ignored.
 
 GET and HEAD are supported. The Worker handles browser OPTIONS and CORS, and exposes `x-fortune-id` to allowed origins. Invalid queries return 400, unknown routes and categories 404, and other methods 405 with `Allow: GET, HEAD`. HEAD has the same status and headers as GET, including `Content-Length`, and an empty body. Rate limiting is per client IP and counts HEAD the same way as GET.
 

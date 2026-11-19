@@ -1,5 +1,6 @@
 import "./style.css";
 import {
+  Calendar,
   ChevronDown,
   Copy,
   ExternalLink,
@@ -17,13 +18,21 @@ import {
 } from "./analytics.js";
 import {
   allowedParam,
+  dailyParam,
   fortuneParam,
   isFortuneId,
   settingsQuery,
 } from "./settings-url.js";
 
 createIcons({
-  icons: { ChevronDown, Copy, ExternalLink, Image: ImageIcon, RefreshCw },
+  icons: {
+    Calendar,
+    ChevronDown,
+    Copy,
+    ExternalLink,
+    Image: ImageIcon,
+    RefreshCw,
+  },
 });
 
 const api = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
@@ -33,12 +42,14 @@ const stage = $("fortune-stage");
 const locale = $("locale");
 const category = $("category");
 const length = $("length");
+const daily = $("daily");
 const cowStyle = $("cow-style");
 const refresh = $("refresh");
 const copy = $("copy");
 const screenshot = $("screenshot");
 let fortune = "";
 let fortuneId = "";
+let dailyOn = false;
 let displayed = "Give me a moment. I'm chewing on a thought.";
 let cowArtwork = DEFAULT_COW;
 let busy = false;
@@ -75,14 +86,18 @@ const translations = {
     category: "A little about",
     cow: "Cow",
     everything: "Everything",
+    daily: "Fortune of the day",
     copy: "Copy",
     copied: "Copied!",
     copyScreenshot: "Copy screenshot",
     downloaded: "Downloaded",
     refresh: "Another fortune",
+    refreshDaily: "Today's fortune",
     hintFirst: "Good things come to those who",
     hintSecond: "Press",
     hintThird: "for another.",
+    hintThirdDaily: "for today's.",
+    statusDaily: "Fortune of the day",
     footer: "A small corner of the internet, just for you.",
     support: "Buy me a coffee ☕",
     encoding: "UTF-8 · 100% grass-fed",
@@ -129,14 +144,18 @@ const translations = {
     category: "Ein wenig über",
     cow: "Kuh",
     everything: "Alles",
+    daily: "Spruch des Tages",
     copy: "Kopieren",
     copied: "Kopiert!",
     copyScreenshot: "Screenshot kopieren",
     downloaded: "Heruntergeladen",
     refresh: "Neue Weisheit",
+    refreshDaily: "Heutiger Spruch",
     hintFirst: "Gute Dinge kommen zu denen, die",
     hintSecond: "Drücke",
     hintThird: "für eine neue.",
+    hintThirdDaily: "für den heutigen.",
+    statusDaily: "Spruch des Tages",
     footer: "Eine kleine Ecke des Internets, nur für dich.",
     support: "Spendier mir einen Kaffee ☕",
     encoding: "UTF-8 · 100% grasgefüttert",
@@ -182,14 +201,18 @@ const translations = {
     category: "Un poco sobre",
     cow: "Vaca",
     everything: "Todo",
+    daily: "Fortuna del día",
     copy: "Copiar",
     copied: "¡Copiado!",
     copyScreenshot: "Copiar captura",
     downloaded: "Descargada",
     refresh: "Otra fortuna",
+    refreshDaily: "Fortuna de hoy",
     hintFirst: "Las cosas buenas llegan a quienes",
     hintSecond: "Pulsa",
     hintThird: "para otra.",
+    hintThirdDaily: "para la de hoy.",
+    statusDaily: "Fortuna del día",
     footer: "Un pequeño rincón de internet, solo para ti.",
     support: "Invítame a un café ☕",
     encoding: "UTF-8 · 100% alimentada con pasto",
@@ -235,14 +258,18 @@ const translations = {
     category: "Um pouco sobre",
     cow: "Vaca",
     everything: "Tudo",
+    daily: "Fortuna do dia",
     copy: "Copiar",
     copied: "Copiado!",
     copyScreenshot: "Copiar captura",
     downloaded: "Baixada",
     refresh: "Outra fortuna",
+    refreshDaily: "Fortuna de hoje",
     hintFirst: "Coisas boas chegam para quem",
     hintSecond: "Pressione",
     hintThird: "para outra.",
+    hintThirdDaily: "para a de hoje.",
+    statusDaily: "Fortuna do dia",
     footer: "Um pequeno canto da internet, só para você.",
     support: "Pague-me um café ☕",
     encoding: "UTF-8 · 100% alimentada com capim",
@@ -289,7 +316,8 @@ function currentSettings() {
     cow: cowStyle.value,
     category: category.value,
     length: length.value,
-    fortune: fortuneId,
+    fortune: dailyOn ? "" : fortuneId,
+    daily: dailyOn,
     defaultLocale,
   };
 }
@@ -367,16 +395,13 @@ function applyLocale() {
   setText("cow-label", text.cow);
   setText("copy-label", text.copy);
   setText("screenshot-label", text.copyScreenshot);
-  setText("refresh-label", text.refresh);
   copy.setAttribute("aria-label", text.copy);
   screenshot.setAttribute("aria-label", text.copyScreenshot);
-  refresh.setAttribute("aria-label", text.refresh);
   copy.title = text.copy;
   screenshot.title = text.copyScreenshot;
-  refresh.title = text.refresh;
   setText("hint-first", text.hintFirst);
   setText("hint-second", text.hintSecond);
-  setText("hint-third", text.hintThird);
+  updateDailyText();
   setText("footer-label", text.footer);
   setText("support-link", text.support);
   setText("analytics-preferences", text.analyticsPreferences);
@@ -425,11 +450,29 @@ async function request(path) {
   return response;
 }
 
+function updateDailyText() {
+  const text = strings();
+  const refreshText = dailyOn ? text.refreshDaily : text.refresh;
+  setText("daily-label", text.daily);
+  setText("refresh-label", refreshText);
+  setText("hint-third", dailyOn ? text.hintThirdDaily : text.hintThird);
+  daily.setAttribute("aria-checked", dailyOn ? "true" : "false");
+  refresh.dataset.daily = dailyOn ? "true" : "false";
+  refresh.setAttribute("aria-label", refreshText);
+  refresh.title = refreshText;
+}
+
 function fortuneRequestPath(id) {
   const params = new URLSearchParams({ locale: currentLocale });
   if (category.value) params.set("category", category.value);
-  // A pinned id is the exact fortune. The API rejects fortune together with length.
-  if (id) params.set("fortune", id);
+  // A pinned id is the exact fortune. The API rejects fortune together with
+  // length, and together with daily. Daily keeps the length filter and omits
+  // the id so the UTC-day fortune can still be chosen.
+  if (dailyOn) {
+    if (length.value === "short" || length.value === "long")
+      params.set("length", length.value);
+    params.set("daily", "true");
+  } else if (id) params.set("fortune", id);
   else if (length.value === "short" || length.value === "long")
     params.set("length", length.value);
   return `/?${params}`;
@@ -441,6 +484,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
   refresh.disabled = true;
   locale.disabled = true;
   length.disabled = true;
+  daily.disabled = true;
   category.disabled = true;
   cowStyle.disabled = true;
   copy.disabled = true;
@@ -453,7 +497,8 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
   $("error").hidden = true;
   $("status").textContent = strings().statusChewing;
   $("command").textContent = commandText();
-  const requestedId = random || !isFortuneId(fortuneId) ? "" : fortuneId;
+  const requestedId =
+    dailyOn || random || !isFortuneId(fortuneId) ? "" : fortuneId;
   let abandonedPinned = false;
   try {
     let response = await fetchApi(fortuneRequestPath(requestedId));
@@ -475,16 +520,25 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     if (!text) throw new Error(strings().quiet);
     fortune = displayed = text;
     const servedId = response.headers.get("x-fortune-id");
-    if (isFortuneId(servedId)) fortuneId = servedId;
+    if (dailyOn) fortuneId = "";
+    else if (isFortuneId(servedId)) fortuneId = servedId;
     else if (!servedFromPinned) fortuneId = "";
     syncSettingsUrl();
     $("fortune-text").textContent = fortune;
-    $("status").textContent = strings().statusFresh;
+    $("status").textContent = dailyOn
+      ? strings().statusDaily
+      : strings().statusFresh;
     renderCow();
     trackSiteEvent("fortune_shown", {
-      reason: ["initial", "button", "keyboard", "category", "language", "length"].includes(
-        reason,
-      )
+      reason: [
+        "initial",
+        "button",
+        "keyboard",
+        "category",
+        "language",
+        "length",
+        "daily",
+      ].includes(reason)
         ? reason
         : "initial",
     });
@@ -508,6 +562,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     refresh.disabled = false;
     locale.disabled = false;
     length.disabled = false;
+    daily.disabled = false;
     category.disabled = category.options.length < 2;
     cowStyle.disabled = cowStyle.options.length < 2;
     copy.disabled = !fortune;
@@ -617,7 +672,17 @@ async function loadLocales() {
   applyLocale();
 }
 
-refresh.addEventListener("click", () => loadFortune({ random: true, reason: "button" }));
+refresh.addEventListener("click", () =>
+  loadFortune({ random: !dailyOn, reason: "button" }),
+);
+daily.addEventListener("click", () => {
+  if (busy) return;
+  dailyOn = !dailyOn;
+  fortuneId = "";
+  updateDailyText();
+  syncSettingsUrl();
+  loadFortune({ random: true, reason: "daily" });
+});
 category.addEventListener("change", () => {
   fortuneId = "";
   syncSettingsUrl();
@@ -645,7 +710,9 @@ locale.addEventListener("change", async () => {
 copy.addEventListener("click", async () => {
   try {
     // The address bar stores the fortune id and any non-default settings, so
-    // the shared link reopens this exact fortune, language, cow, category, and length.
+    // the shared link reopens this exact fortune, language, cow, category, and
+    // length. Fortune of the day shares `daily=true` and the filters instead
+    // of a pinned id.
     const websiteUrl = `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
     await navigator.clipboard.writeText(`${fortune}\n\n${websiteUrl}`);
     trackSiteEvent("copy_fortune", { result: "copied" });
@@ -776,7 +843,7 @@ screenshot.addEventListener("click", async () => {
   context.fillStyle = "#6c7086";
   context.font = `400 ${13 * chromeScale}px 'JetBrains Mono', monospace`;
   context.fillText(
-    strings().statusFresh,
+    dailyOn ? strings().statusDaily : strings().statusFresh,
     inset + 32 * chromeScale,
     frameBottom - 28 * chromeScale,
   );
@@ -929,7 +996,9 @@ async function initialize() {
           "long",
         ]);
         if (requestedLength !== undefined) length.value = requestedLength;
-        fortuneId = fortuneParam(initialSearch) || "";
+        dailyOn = dailyParam(initialSearch);
+        updateDailyText();
+        fortuneId = dailyOn ? "" : fortuneParam(initialSearch) || "";
         if (cowStyle.value !== "default") await loadCowArtwork();
         // Normalize before the fortune request so an invalid query does not
         // linger in the address bar while the page is still loading.

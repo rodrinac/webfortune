@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   allowedParam,
+  dailyParam,
   fortuneParam,
   isFortuneId,
   isResourceName,
@@ -288,6 +289,97 @@ test("serializes length between category and the fortune id", () => {
     }),
     "?locale=pt&cow=tux&category=love&fortune=love-4",
   );
+});
+
+test("reads daily=true and ignores every other value", () => {
+  assert.equal(dailyParam("?daily=true"), true);
+  assert.equal(dailyParam("?locale=pt&cow=tux&category=love&daily=true"), true);
+  assert.equal(dailyParam("?length=short&daily=true"), true);
+  assert.equal(dailyParam(""), false);
+  assert.equal(dailyParam("?daily=false"), false);
+  assert.equal(dailyParam("?daily=TRUE"), false);
+  assert.equal(dailyParam("?daily=1"), false);
+  assert.equal(dailyParam("?daily=yes"), false);
+  assert.equal(dailyParam("?daily="), false);
+  assert.equal(dailyParam("?daily"), false);
+  assert.equal(dailyParam("?daily=true "), false);
+  assert.equal(dailyParam("?daily=true&daily=true"), false);
+  assert.equal(dailyParam("?daily=true&daily=false"), false);
+  assert.equal(dailyParam("?daily=%3Ctrue%3E"), false);
+  // A bad daily value does not hide a sibling setting.
+  assert.equal(allowedParam("?daily=nope&cow=tux", "cow", cows), "tux");
+  assert.equal(fortuneParam("?daily=false&fortune=love-4"), "love-4");
+});
+
+test("serializes daily in place of a fortune id", () => {
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      length: "short",
+      fortune: "love-4",
+      daily: true,
+      defaultLocale: "en",
+    }),
+    "?locale=pt&cow=tux&category=love&length=short&daily=true",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "default",
+      category: "",
+      daily: true,
+      defaultLocale: "en",
+    }),
+    "?daily=true",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "pt",
+      cow: "default",
+      category: "wisdom",
+      length: "long",
+      daily: true,
+      defaultLocale: "pt",
+    }),
+    "?category=wisdom&length=long&daily=true",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "default",
+      category: "",
+      fortune: "general-0",
+      daily: false,
+      defaultLocale: "en",
+    }),
+    "?fortune=general-0",
+  );
+  assert.equal(
+    settingsQuery({
+      locale: "en",
+      cow: "tux",
+      category: "",
+      fortune: "general-0",
+      daily: true,
+      defaultLocale: "de",
+    }),
+    "?locale=en&cow=tux&daily=true",
+  );
+  for (const daily of [false, "true", "TRUE", 1, null, undefined]) {
+    assert.equal(
+      settingsQuery({
+        locale: "en",
+        cow: "default",
+        category: "",
+        daily,
+        defaultLocale: "en",
+      }),
+      "",
+      String(daily),
+    );
+  }
 });
 
 test("serializes the fortune id after the other settings", () => {

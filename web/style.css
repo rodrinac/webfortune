@@ -303,7 +303,7 @@ h1 span {
 }
 .fortune-stage {
   padding: 32px 0 29px;
-  min-height: 280px;
+  min-height: 268px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -346,17 +346,45 @@ h1 span {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.2fr) auto;
   align-items: end;
-  gap: 16px;
+  column-gap: 16px;
+  row-gap: 6px;
   margin-top: 24px;
 }
 .locale-field,
 .length-field,
 .category-field {
+  grid-row: 1;
   min-width: 0;
+}
+.locale-field {
+  grid-column: 1;
+}
+.length-field {
+  grid-column: 2;
+}
+.category-field {
+  grid-column: 3;
+}
+.actions {
+  grid-column: 4;
+  grid-row: 1;
+}
+.daily-field {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  align-self: start;
+  gap: 10px;
+  min-width: 0;
+}
+.daily-field label {
+  margin: 0;
 }
 .locale-field label,
 .length-field label,
-.category-field label {
+.category-field label,
+.daily-field label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -389,6 +417,13 @@ select:disabled {
 }
 .refresh-button {
   min-width: 171px;
+}
+.refresh-icon-daily,
+.refresh-button[data-daily="true"] .refresh-icon-random {
+  display: none;
+}
+.refresh-button[data-daily="true"] .refresh-icon-daily {
+  display: block;
 }
 .refresh-button #refresh-label {
   font-family: "DM Sans", sans-serif;
@@ -452,7 +487,7 @@ select:disabled {
   text-align: center;
   color: var(--overlay);
   font-size: 11px;
-  margin: 27px 0 0;
+  margin: 10px 0 0;
   line-height: 2;
 }
 footer {
@@ -678,12 +713,26 @@ footer {
     grid-row: 1;
   }
   .length-field {
-    grid-column: 1 / -1;
+    grid-column: 1;
     grid-row: 2;
+  }
+  .daily-field {
+    grid-column: 2;
+    grid-row: 2;
+    flex-direction: column;
+    align-items: flex-start;
+    align-self: end;
+    gap: 9px;
+  }
+  .daily-field [data-slot="switch"]::before {
+    content: "";
+    position: absolute;
+    inset: -12px;
   }
   .locale-field label,
   .length-field label,
-  .category-field label {
+  .category-field label,
+  .daily-field label {
     font-size: 10px;
   }
   select {

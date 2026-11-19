@@ -187,6 +187,19 @@
               ></span>
             </div>
           </div>
+          <div class="daily-field">
+            <label data-slot="label" id="daily-label" for="daily">Fortune of the day</label>
+            <button
+              data-slot="switch"
+              id="daily"
+              type="button"
+              role="switch"
+              aria-checked="false"
+              aria-labelledby="daily-label"
+            >
+              <span data-slot="switch-thumb"></span>
+            </button>
+          </div>
           <div class="actions flex">
             <button data-slot="button" data-variant="outline" id="copy" class="copy-button" type="button" aria-label="Copy" title="Copy" disabled>
               <span data-slot="icon" aria-hidden="true"><i data-lucide="copy"></i></span>
@@ -195,7 +208,10 @@
               <span data-slot="icon" aria-hidden="true"><i data-lucide="image"></i></span>
               <span id="screenshot-label">Copy screenshot</span></button
             ><button data-slot="button" data-variant="default" id="refresh" class="refresh-button" type="button" aria-label="Another fortune" title="Another fortune">
-              <span data-slot="icon" aria-hidden="true"><i data-lucide="refresh-cw"></i></span>
+              <span data-slot="icon" aria-hidden="true"
+                ><i data-lucide="refresh-cw" class="refresh-icon-random"></i
+                ><i data-lucide="calendar" class="refresh-icon-daily"></i
+              ></span>
               <span id="refresh-label">Another fortune</span>
             </button>
           </div>

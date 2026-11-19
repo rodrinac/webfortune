@@ -1,8 +1,9 @@
 // Shareable page settings. Locale, cow, category, and length are accepted only
 // when they match the API's resource-name rule and an allow-list the caller
-// already loaded. Length is only `short` or `long`. A fortune id uses that
-// same rule and a `<database>-<index>` shape. Nothing returned here is safe to
-// treat as HTML; callers must keep using text APIs.
+// already loaded. Length is only `short` or `long`. Daily is only the exact
+// value `true`. A fortune id uses that same rule and a `<database>-<index>`
+// shape. Nothing returned here is safe to treat as HTML; callers must keep
+// using text APIs.
 
 const RESOURCE_NAME = /^[a-zA-Z0-9_.-]+$/;
 
@@ -48,15 +49,24 @@ export function fortuneParam(search) {
   return isFortuneId(values[0]) ? values[0] : undefined;
 }
 
+// The API accepts only `daily=true`. Anything else, including a repeat, is
+// ignored so a bad link still opens as a normal fortune.
+export function dailyParam(search) {
+  const values = searchParams(search).getAll("daily");
+  return values.length === 1 && values[0] === "true";
+}
+
 // Query string for the settings that differ from the defaults. Param order
-// matches the share link: locale, cow, category, length, then the exact fortune.
-// `Any` is the empty length and stays off the URL.
+// matches the share link: locale, cow, category, length, daily, then the exact
+// fortune. `Any` is the empty length and stays off the URL. Daily replaces the
+// fortune id, because the API rejects the two together.
 export function settingsQuery({
   locale,
   cow,
   category,
   length,
   fortune,
+  daily = false,
   defaultLocale,
   defaultCow = "default",
 }) {
@@ -66,7 +76,8 @@ export function settingsQuery({
   if (isResourceName(cow) && cow !== defaultCow) params.set("cow", cow);
   if (isResourceName(category)) params.set("category", category);
   if (length === "short" || length === "long") params.set("length", length);
-  if (isFortuneId(fortune)) params.set("fortune", fortune);
+  if (daily === true) params.set("daily", "true");
+  else if (isFortuneId(fortune)) params.set("fortune", fortune);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
