@@ -12,4 +12,6 @@ test("main page CSP is enforced and refuses framing", async ({ page }) => {
   expect(hsts).toMatch(/max-age=(\d+)/);
   expect(Number(hsts.match(/max-age=(\d+)/)[1])).toBeGreaterThanOrEqual(31536000);
   expect(hsts.toLowerCase()).toContain("includesubdomains");
+  expect(headers["cross-origin-opener-policy"]).toBe("same-origin");
+  expect(headers["cross-origin-resource-policy"]).toBe("same-origin");
 });

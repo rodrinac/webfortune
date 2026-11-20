@@ -125,6 +125,8 @@ mod tests {
                 "permissions-policy",
                 "x-frame-options",
                 "strict-transport-security",
+                "cross-origin-opener-policy",
+                "cross-origin-resource-policy",
             ]
         );
         assert!(header(&headers, "content-security-policy-report-only").is_empty());
@@ -175,6 +177,14 @@ mod tests {
         let hsts = header(&headers, "strict-transport-security");
         assert_eq!(hsts, STRICT_TRANSPORT_SECURITY);
         assert!(is_long_lived_hsts(hsts));
+        assert_eq!(
+            header(&headers, "cross-origin-opener-policy"),
+            "same-origin"
+        );
+        assert_eq!(
+            header(&headers, "cross-origin-resource-policy"),
+            "same-origin"
+        );
     }
 
     #[test]
