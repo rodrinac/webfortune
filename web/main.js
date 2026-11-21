@@ -87,6 +87,7 @@ const translations = {
     cow: "Cow",
     everything: "Everything",
     daily: "Fortune of the day",
+    moreOptions: "More Options",
     copy: "Copy",
     copied: "Copied!",
     copyScreenshot: "Copy screenshot",
@@ -145,6 +146,7 @@ const translations = {
     cow: "Kuh",
     everything: "Alles",
     daily: "Spruch des Tages",
+    moreOptions: "Mehr Optionen",
     copy: "Kopieren",
     copied: "Kopiert!",
     copyScreenshot: "Screenshot kopieren",
@@ -202,6 +204,7 @@ const translations = {
     cow: "Vaca",
     everything: "Todo",
     daily: "Fortuna del día",
+    moreOptions: "Más opciones",
     copy: "Copiar",
     copied: "¡Copiado!",
     copyScreenshot: "Copiar captura",
@@ -259,6 +262,7 @@ const translations = {
     cow: "Vaca",
     everything: "Tudo",
     daily: "Fortuna do dia",
+    moreOptions: "Mais opções",
     copy: "Copiar",
     copied: "Copiado!",
     copyScreenshot: "Copiar captura",
@@ -382,6 +386,7 @@ function applyLocale() {
   $("terminal").setAttribute("aria-label", text.terminal);
   setText("terminal-label", text.pasture);
   setText("locale-label", text.language);
+  setText("more-options-label", text.moreOptions);
   setText("length-label", text.length);
   for (const option of length.options) {
     option.textContent =
@@ -672,6 +677,11 @@ async function loadLocales() {
   applyLocale();
 }
 
+$("more-options").addEventListener("click", () => {
+  const open = $("more-options").getAttribute("aria-expanded") !== "true";
+  $("more-options").setAttribute("aria-expanded", String(open));
+  $("fortune-options").hidden = !open;
+});
 refresh.addEventListener("click", () =>
   loadFortune({ random: !dailyOn, reason: "button" }),
 );

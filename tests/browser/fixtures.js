@@ -17,4 +17,10 @@ export const test = base.extend({
   },
 });
 
+export async function showFortuneOptions(page) {
+  const toggle = page.locator("#more-options");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(page.locator("#locale")).toBeVisible();
+}
+
 export { expect };
