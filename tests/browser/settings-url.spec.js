@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { showFortuneOptions, test, expect } from "./fixtures.js";
 
 async function mockApi(page) {
   const fortuneRequests = [];
@@ -92,6 +92,7 @@ test("opens from a settings link and keeps the query in sync", async ({
   await page.evaluate(() => {
     window.__session = "still-here";
   });
+  await showFortuneOptions(page);
   await page.selectOption("#category", "wisdom");
   await expect
     .poll(() => page.evaluate(() => location.search))
@@ -192,6 +193,7 @@ test("uses the browser language when locale is missing or unknown", async ({
   expect(new URL(page.url()).search).toBe("?locale=en");
 
   const historyLength = await page.evaluate(() => history.length);
+  await showFortuneOptions(page);
   await page.selectOption("#locale", "pt");
   await expect.poll(() => page.evaluate(() => location.search)).toBe("");
   await expect(page.locator("#locale")).toHaveValue("pt");
@@ -220,6 +222,7 @@ test("length picker filters fortunes and restores from the URL", async ({
   expect(new URL(page.url()).search).toBe("");
 
   const historyLength = await page.evaluate(() => history.length);
+  await showFortuneOptions(page);
   await page.selectOption("#length", "short");
   await expect(page.locator("#fortune-text")).toHaveText("Short fortune.");
   await expect(page.locator("#command")).toHaveText("fortune -s | cowsay");
@@ -235,6 +238,7 @@ test("length picker filters fortunes and restores from the URL", async ({
   expect(fortuneRequests.at(-1)).toBe("?locale=en&length=short");
   expect(new URL(page.url()).search).toBe("?length=short");
 
+  await showFortuneOptions(page);
   await page.selectOption("#category", "wisdom");
   await expect.poll(() => fortuneRequests.at(-1)).toBe(
     "?locale=en&category=wisdom&length=short",
@@ -324,6 +328,7 @@ test("disables the length picker while a fortune is loading", async ({
   await expect(page.locator("#fortune-text")).toHaveText("A general fortune.");
   await expect(page.locator("#length")).toBeEnabled();
 
+  await showFortuneOptions(page);
   const selection = page.selectOption("#length", "long");
   await expect(page.locator("#length")).toBeDisabled();
   await expect(page.locator("#daily")).toBeDisabled();
@@ -401,6 +406,7 @@ test("fortune of the day is shared, restored, and left again for a random fortun
   await installClipboard(page);
   await page.goto("/");
 
+  await showFortuneOptions(page);
   const dailySwitch = page.getByRole("switch", { name: "Fortune of the day" });
   await expect(dailySwitch).toBeVisible();
   await expect(dailySwitch).toHaveAttribute("aria-checked", "false");
@@ -489,7 +495,8 @@ test("fortune of the day is shared, restored, and left again for a random fortun
     );
 
   await page.reload();
-  await expect(dailySwitch).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("#more-options")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#daily")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator("#cow-style")).toHaveValue("tux");
   await expect(page.locator("#category")).toHaveValue("love");
   await expect(page.locator("#length")).toHaveValue("short");
@@ -502,6 +509,7 @@ test("fortune of the day is shared, restored, and left again for a random fortun
     "?cow=tux&category=love&length=short&daily=true",
   );
 
+  await showFortuneOptions(page);
   await dailySwitch.click();
   await expect(dailySwitch).toHaveAttribute("aria-checked", "false");
   await expect(page.getByRole("button", { name: "Another fortune" })).toBeVisible();
@@ -521,11 +529,10 @@ test("fortune of the day is shared, restored, and left again for a random fortun
   await page.goto(
     "/?locale=pt&cow=tux&category=love&length=long&daily=true&fortune=love-4",
   );
+  await expect(page.locator("#more-options")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("#locale")).toHaveValue("pt");
-  await expect(page.getByRole("switch", { name: "Fortuna do dia" })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
+  await expect(page.locator("#daily")).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("#daily-label")).toHaveText("Fortuna do dia");
   await expect(page.locator("#fortune-text")).toHaveText("Daily fortune.");
   expect(fortuneRequests.at(-1)).toBe(
     "?locale=pt&category=love&length=long&daily=true",
@@ -544,10 +551,8 @@ test("fortune of the day is shared, restored, and left again for a random fortun
     "?daily=yes&fortune=love-4",
   ]) {
     await page.goto(search);
-    await expect(page.getByRole("switch", { name: "Fortune of the day" })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
+    await expect(page.locator("#more-options")).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#daily")).toHaveAttribute("aria-checked", "false");
     expect(fortuneRequests.at(-1)).not.toContain("daily=");
     expect(new URL(page.url()).search).not.toContain("daily=");
   }
@@ -556,6 +561,7 @@ test("fortune of the day is shared, restored, and left again for a random fortun
   const isMobile = test.info().project.name.startsWith("mobile-");
   await page.goto("/");
   await expect(page.locator("#fortune-text")).toHaveText(/fortune/i);
+  await showFortuneOptions(page);
   const lengthBox = await page.locator(".length-field").boundingBox();
   const dailyBox = await page.locator(".daily-field").boundingBox();
   const localeBox = await page.locator(".locale-field").boundingBox();

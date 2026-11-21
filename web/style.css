@@ -343,12 +343,69 @@ h1 span {
 }
 .controls {
   container: controls / inline-size;
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.2fr) auto;
   align-items: end;
   column-gap: 16px;
   row-gap: 6px;
   margin-top: 24px;
+}
+.more-options {
+  position: absolute;
+  z-index: 1;
+  grid-column: 1 / -1;
+  top: -22px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--overlay);
+  font: 500 11px/1 "JetBrains Mono", monospace;
+  letter-spacing: 0.08em;
+}
+.more-options-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.more-options-label {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.more-options-chevron {
+  display: inline-flex;
+  transition: transform 0.18s ease;
+}
+.more-options[aria-expanded="true"] .more-options-chevron {
+  transform: rotate(180deg);
+}
+.more-options-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+.more-options:hover,
+.more-options:focus-visible {
+  color: var(--gold);
+}
+.more-options:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+.fortune-options {
+  display: contents;
+}
+.fortune-options[hidden] {
+  display: none !important;
 }
 .locale-field,
 .length-field,
@@ -702,7 +759,14 @@ footer {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: end;
     gap: 15px;
-    margin-top: 20px;
+    margin-top: 36px;
+  }
+  .more-options {
+    top: -30px;
+    height: 20px;
+  }
+  .fortune-options[hidden] ~ .actions {
+    grid-row: 1;
   }
   .locale-field {
     grid-column: 1;
@@ -838,7 +902,7 @@ footer {
     padding: 24px 0;
   }
   .controls {
-    margin-top: 18px;
+    margin-top: 24px;
   }
   .hint {
     margin-top: 18px;
@@ -880,7 +944,7 @@ footer {
     line-height: 1.4;
   }
   .controls {
-    margin-top: 14px;
+    margin-top: 24px;
   }
   .hint {
     margin-top: 12px;

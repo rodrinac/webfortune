@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { showFortuneOptions, test, expect } from "./fixtures.js";
 import { writeFile } from "node:fs/promises";
 
 test("loads a fortune, selects categories, and stays within the viewport", async ({
@@ -74,6 +74,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
         () => document.documentElement.scrollHeight <= innerHeight,
       ),
     ).toBe(true);
+  await showFortuneOptions(page);
   await page.selectOption("#category", "computers");
   await expect(page.locator("#fortune-text")).toContainText("A computer");
   expect(requests).toContain("?locale=en&category=computers");
@@ -461,6 +462,7 @@ test("loading gate covers only startup and language changes localize SEO", async
   await expect(page.locator("#app-loader")).toBeHidden();
   await expect(page.locator("#page")).toHaveAttribute("aria-hidden", "false");
 
+  await showFortuneOptions(page);
   await page.selectOption("#locale", "pt");
   await expect.poll(() => pendingFortunes.length).toBe(1);
   await expect(page.locator("#app-loader")).toBeHidden();
