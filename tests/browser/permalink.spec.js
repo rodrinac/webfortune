@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { showFortuneOptions, test, expect } from "./fixtures.js";
 
 const bodies = {
   "love-2": "O amor da vaca é paciente.",
@@ -195,6 +195,7 @@ test("invalid and stale fortune ids fall back to a random fortune", async ({
     "?locale=pt&cow=tux&category=love&fortune=love-2",
   );
 
+  await showFortuneOptions(page);
   await page.selectOption("#category", "wisdom");
   await expect(page.locator("#fortune-text")).toHaveText(bodies["wisdom-0"]);
   await expect.poll(() => page.evaluate(() => location.search)).toBe(
@@ -246,6 +247,7 @@ test("a permalink wins over the length filter", async ({ page }) => {
   );
   expect(fortuneRequests.at(-1)).toBe("?locale=pt&category=love&length=short");
 
+  await showFortuneOptions(page);
   await page.selectOption("#length", "long");
   await expect(page.locator("#fortune-text")).toHaveText(bodies["love-4"]);
   await expect.poll(() => page.evaluate(() => location.search)).toBe(
