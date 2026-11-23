@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Image as ImageIcon,
   RefreshCw,
+  Share,
   createIcons,
 } from "lucide";
 import { cowsay, DEFAULT_COW } from "./cowsay.js";
@@ -32,6 +33,7 @@ createIcons({
     ExternalLink,
     Image: ImageIcon,
     RefreshCw,
+    Share,
   },
 });
 
@@ -46,7 +48,9 @@ const daily = $("daily");
 const cowStyle = $("cow-style");
 const refresh = $("refresh");
 const copy = $("copy");
+const share = $("share");
 const screenshot = $("screenshot");
+if (typeof navigator.share === "function") share.hidden = false;
 let fortune = "";
 let fortuneId = "";
 let dailyOn = false;
@@ -54,6 +58,7 @@ let displayed = "Give me a moment. I'm chewing on a thought.";
 let cowArtwork = DEFAULT_COW;
 let busy = false;
 let copyTimer;
+let shareTimer;
 let screenshotTimer;
 
 const translations = {
@@ -90,6 +95,8 @@ const translations = {
     moreOptions: "More Options",
     copy: "Copy",
     copied: "Copied!",
+    share: "Share",
+    shareFailed: "Not shared",
     copyScreenshot: "Copy screenshot",
     downloaded: "Downloaded",
     refresh: "Another fortune",
@@ -149,6 +156,8 @@ const translations = {
     moreOptions: "Mehr Optionen",
     copy: "Kopieren",
     copied: "Kopiert!",
+    share: "Teilen",
+    shareFailed: "Nicht geteilt",
     copyScreenshot: "Screenshot kopieren",
     downloaded: "Heruntergeladen",
     refresh: "Neue Weisheit",
@@ -207,6 +216,8 @@ const translations = {
     moreOptions: "Más opciones",
     copy: "Copiar",
     copied: "¡Copiado!",
+    share: "Compartir",
+    shareFailed: "No compartido",
     copyScreenshot: "Copiar captura",
     downloaded: "Descargada",
     refresh: "Otra fortuna",
@@ -265,6 +276,8 @@ const translations = {
     moreOptions: "Mais opções",
     copy: "Copiar",
     copied: "Copiado!",
+    share: "Partilhar",
+    shareFailed: "Não partilhado",
     copyScreenshot: "Copiar captura",
     downloaded: "Baixada",
     refresh: "Outra fortuna",
@@ -399,10 +412,13 @@ function applyLocale() {
   setText("category-label", text.category);
   setText("cow-label", text.cow);
   setText("copy-label", text.copy);
+  setText("share-label", text.share);
   setText("screenshot-label", text.copyScreenshot);
   copy.setAttribute("aria-label", text.copy);
+  share.setAttribute("aria-label", text.share);
   screenshot.setAttribute("aria-label", text.copyScreenshot);
   copy.title = text.copy;
+  share.title = text.share;
   screenshot.title = text.copyScreenshot;
   setText("hint-first", text.hintFirst);
   setText("hint-second", text.hintSecond);
@@ -493,10 +509,13 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
   category.disabled = true;
   cowStyle.disabled = true;
   copy.disabled = true;
+  share.disabled = true;
   screenshot.disabled = true;
   clearTimeout(copyTimer);
+  clearTimeout(shareTimer);
   clearTimeout(screenshotTimer);
   $("copy-label").textContent = strings().copy;
+  $("share-label").textContent = strings().share;
   $("screenshot-label").textContent = strings().copyScreenshot;
   stage.setAttribute("aria-busy", "true");
   $("error").hidden = true;
@@ -571,6 +590,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     category.disabled = category.options.length < 2;
     cowStyle.disabled = cowStyle.options.length < 2;
     copy.disabled = !fortune;
+    share.disabled = !fortune;
     screenshot.disabled = !fortune;
     stage.setAttribute("aria-busy", "false");
   }
@@ -717,14 +737,17 @@ locale.addEventListener("change", async () => {
   await loadFortune({ random: true, reason: "language" });
   renderCow();
 });
+// The address bar stores the fortune id and any non-default settings, so
+// the shared link reopens this exact fortune, language, cow, category, and
+// length. Fortune of the day uses `daily=true` and the filters instead of a
+// pinned id. Copy and Share both use this URL.
+function permalink() {
+  return `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
+}
+
 copy.addEventListener("click", async () => {
   try {
-    // The address bar stores the fortune id and any non-default settings, so
-    // the shared link reopens this exact fortune, language, cow, category, and
-    // length. Fortune of the day shares `daily=true` and the filters instead
-    // of a pinned id.
-    const websiteUrl = `${location.origin}${location.pathname}${settingsQuery(currentSettings())}`;
-    await navigator.clipboard.writeText(`${fortune}\n\n${websiteUrl}`);
+    await navigator.clipboard.writeText(`${fortune}\n\n${permalink()}`);
     trackSiteEvent("copy_fortune", { result: "copied" });
     $("copy-label").textContent = strings().copied;
     copyTimer = setTimeout(() => {
@@ -734,6 +757,29 @@ copy.addEventListener("click", async () => {
     trackSiteEvent("copy_fortune", { result: "clipboard_unavailable" });
     $("error").textContent = strings().clipboard;
     $("error").hidden = false;
+  }
+});
+share.addEventListener("click", async () => {
+  try {
+    await navigator.share({
+      title: "webfortune",
+      text: fortune,
+      url: permalink(),
+    });
+    clearTimeout(shareTimer);
+    $("share-label").textContent = strings().share;
+    trackSiteEvent("share_fortune", { result: "shared" });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      trackSiteEvent("share_fortune", { result: "cancelled" });
+      return;
+    }
+    trackSiteEvent("share_fortune", { result: "failed" });
+    $("share-label").textContent = strings().shareFailed;
+    clearTimeout(shareTimer);
+    shareTimer = setTimeout(() => {
+      $("share-label").textContent = strings().share;
+    }, 2000);
   }
 });
 screenshot.addEventListener("click", async () => {

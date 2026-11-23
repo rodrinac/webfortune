@@ -178,7 +178,7 @@ test("loads a fortune, selects categories, and stays within the viewport", async
       const style = getComputedStyle(actions);
       return {
         gap: style.gap,
-        buttons: [...actions.querySelectorAll("button")].map((button) => {
+        buttons: [...actions.querySelectorAll("button:not([hidden])")].map((button) => {
           const buttonStyle = getComputedStyle(button);
           return {
             height: buttonStyle.height,
@@ -409,7 +409,7 @@ test("action labels progressively yield space to dropdowns", async ({ page }) =>
       return {
         labelsVisible: copyLabel.width > 1 && screenshotLabel.width > 1,
         refreshLabelHidden: refreshLabel.width === 1,
-        childrenFit: [...actions.children].every((button) => {
+        childrenFit: [...actions.children].filter((button) => !button.hidden).every((button) => {
           const buttonBounds = button.getBoundingClientRect();
           return buttonBounds.left >= bounds.left && buttonBounds.right <= bounds.right;
         }),

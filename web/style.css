@@ -466,7 +466,8 @@ select:disabled {
 .actions {
   gap: 10px;
 }
-.copy-button {
+.copy-button,
+.share-button {
   flex: none;
 }
 .screenshot-button {
@@ -511,11 +512,13 @@ select:disabled {
     }
   }
   @container controls (max-width: 680px) {
-    .copy-button {
+    .copy-button,
+    .share-button {
       width: 44px;
       padding-inline: 0;
     }
-    .copy-button #copy-label {
+    .copy-button #copy-label,
+    .share-button #share-label {
       position: absolute;
       width: 1px;
       height: 1px;
@@ -827,7 +830,21 @@ footer {
       clip: rect(0, 0, 0, 0);
     }
   }
+  /* Four labelled actions do not fit one row on a phone. Share stays in the
+     same row as Copy; screenshot and refresh wrap beneath them. */
+  .actions:has(#share:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .actions:has(#share:not([hidden])) .refresh-button #refresh-label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
   .copy-button,
+  .share-button,
   .screenshot-button,
   .refresh-button {
     min-width: 0;
@@ -835,6 +852,7 @@ footer {
     padding: 8px 10px;
   }
   .copy-button,
+  .share-button,
   .screenshot-button {
     display: flex;
     flex-direction: column;
@@ -850,6 +868,7 @@ footer {
     gap: 7px;
   }
   .copy-button > span:first-child,
+  .share-button > span:first-child,
   .screenshot-button > span:first-child,
   .refresh-button > span:first-child {
     margin-right: 0;
