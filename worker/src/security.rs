@@ -1,9 +1,10 @@
-//! Security headers added to HTML from the Pages host.
+//! Security headers added to HTML from the Pages host and API / `/og.png` replies.
 //!
 //! `html-security-headers.txt` is the only copy of the HTML policy. The Vite
 //! dev and preview servers read that same file, so the Playwright run
-//! exercises the headers the Worker sends. HSTS also rides on API text, JSON,
-//! and PNG responses via [`STRICT_TRANSPORT_SECURITY`].
+//! exercises the headers the Worker sends. API text, JSON, cowsay, error,
+//! 405, OPTIONS, and `/og.png` responses share [`API_SECURITY_HEADERS`], which
+//! includes [`STRICT_TRANSPORT_SECURITY`].
 //!
 //! The host library target does not link the Worker runtime, which is the only
 //! non-test caller. Dead-code checks still run for the wasm32 build.
@@ -16,6 +17,22 @@ use std::fmt;
 /// `preload` until every subdomain is HTTPS-only and hstspreload.org is a
 /// deliberate follow-up.
 pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=31536000; includeSubDomains";
+
+/// Deny-all security headers sent on API responses (text, JSON, cowsay,
+/// errors, 429, 405, OPTIONS 204, `/health`) and `/og.png`.
+///
+/// Do not add `cross-origin-resource-policy: same-origin` here: the web app
+/// and link-preview crawlers fetch the API and `/og.png` cross-origin.
+pub const API_SECURITY_HEADERS: &[(&str, &str)] = &[
+    (
+        "content-security-policy",
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    ),
+    ("x-content-type-options", "nosniff"),
+    ("referrer-policy", "no-referrer"),
+    ("x-frame-options", "DENY"),
+    ("strict-transport-security", STRICT_TRANSPORT_SECURITY),
+];
 
 /// True when `value` is a long-lived HSTS policy (≥ one year, includeSubDomains).
 #[cfg(test)]
@@ -185,6 +202,50 @@ mod tests {
             header(&headers, "cross-origin-resource-policy"),
             "same-origin"
         );
+    }
+
+    #[test]
+    fn api_responses_get_a_deny_all_security_policy() {
+        let headers: Vec<(String, String)> = API_SECURITY_HEADERS
+            .iter()
+            .map(|&(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        let names: Vec<_> = headers.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "content-security-policy",
+                "x-content-type-options",
+                "referrer-policy",
+                "x-frame-options",
+                "strict-transport-security",
+            ]
+        );
+        assert!(header(&headers, "content-security-policy-report-only").is_empty());
+        assert_ne!(
+            header(&headers, "cross-origin-resource-policy"),
+            "same-origin"
+        );
+
+        let policy = header(&headers, "content-security-policy");
+        assert_eq!(
+            policy,
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        );
+        assert_eq!(directive(policy, "default-src"), "default-src 'none'");
+        assert_eq!(
+            directive(policy, "frame-ancestors"),
+            "frame-ancestors 'none'"
+        );
+        assert_eq!(directive(policy, "base-uri"), "base-uri 'none'");
+        assert_eq!(directive(policy, "form-action"), "form-action 'none'");
+
+        assert_eq!(header(&headers, "x-content-type-options"), "nosniff");
+        assert_eq!(header(&headers, "referrer-policy"), "no-referrer");
+        assert_eq!(header(&headers, "x-frame-options"), "DENY");
+        let hsts = header(&headers, "strict-transport-security");
+        assert_eq!(hsts, STRICT_TRANSPORT_SECURITY);
+        assert!(is_long_lived_hsts(hsts));
     }
 
     #[test]
