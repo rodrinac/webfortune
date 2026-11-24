@@ -221,9 +221,11 @@ mod runtime {
         // cannot turn a hit into 206. HEAD shares the same entry.
         if let Some(mut cached) = cache.get(cache_key.as_str(), true).await? {
             // Cache API responses keep an immutable header guard. Copy into a
-            // new list so hit/miss and CORS can be set for this request.
+            // new list so security headers, hit/miss, and CORS can be set for
+            // this request (including entries cached before a header update).
             let headers = cached.headers().clone();
             *cached.headers_mut() = headers;
+            apply_api_security_headers(&mut cached)?;
             cached.headers_mut().set("x-og-cache", "hit")?;
             apply_cors_headers(&mut cached, request, env, method)?;
             return maybe_head(cached, method == "HEAD");
@@ -250,19 +252,18 @@ mod runtime {
         maybe_head(response, method == "HEAD")
     }
 
+    fn apply_api_security_headers(response: &mut Response) -> Result<()> {
+        for &(name, value) in security::API_SECURITY_HEADERS {
+            response.headers_mut().set(name, value)?;
+        }
+        Ok(())
+    }
+
     fn png_body(png: Vec<u8>) -> Result<Response> {
         let mut response = Response::from_bytes(png)?.with_status(200);
-        response.headers_mut().set("content-type", "image/png")?;
-        response
-            .headers_mut()
-            .set("cache-control", "public, max-age=86400")?;
-        response
-            .headers_mut()
-            .set("x-content-type-options", "nosniff")?;
-        response.headers_mut().set(
-            "strict-transport-security",
-            security::STRICT_TRANSPORT_SECURITY,
-        )?;
+        for (name, value) in api::og_png_headers() {
+            response.headers_mut().set(name, &value)?;
+        }
         Ok(response)
     }
 

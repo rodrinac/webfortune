@@ -173,18 +173,34 @@ fn health_ok() -> Reply {
     reply(200, JSON, HEALTH_BODY)
 }
 
+fn api_headers(
+    extra: impl IntoIterator<Item = (&'static str, String)>,
+) -> Vec<(&'static str, String)> {
+    extra
+        .into_iter()
+        .chain(
+            crate::security::API_SECURITY_HEADERS
+                .iter()
+                .map(|&(name, value)| (name, value.to_string())),
+        )
+        .collect()
+}
+
+/// Static headers sent on a `200` `/og.png` response before `x-og-cache` and CORS.
+pub fn og_png_headers() -> Vec<(&'static str, String)> {
+    api_headers([
+        ("content-type", "image/png".to_string()),
+        ("cache-control", "public, max-age=86400".to_string()),
+    ])
+}
+
 pub fn reply(status: u16, content_type: &str, body: impl Into<String>) -> Reply {
     Reply {
         status,
-        headers: vec![
+        headers: api_headers([
             ("content-type", content_type.to_string()),
             ("cache-control", "no-store".to_string()),
-            ("x-content-type-options", "nosniff".to_string()),
-            (
-                "strict-transport-security",
-                crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
-            ),
-        ],
+        ]),
         body: body.into(),
     }
 }
@@ -666,10 +682,7 @@ pub fn handle_at(
     if method == "OPTIONS" {
         return Action::Reply(Reply {
             status: 204,
-            headers: vec![(
-                "strict-transport-security",
-                crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
-            )],
+            headers: api_headers([]),
             body: String::new(),
         });
     }
@@ -677,14 +690,10 @@ pub fn handle_at(
     if method != "GET" && method != "HEAD" {
         return Action::Reply(Reply {
             status: 405,
-            headers: vec![
+            headers: api_headers([
                 ("allow", "GET, HEAD".to_string()),
                 ("content-type", TEXT.to_string()),
-                (
-                    "strict-transport-security",
-                    crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
-                ),
-            ],
+            ]),
             body: "Method not allowed.\n".to_string(),
         });
     }
@@ -1320,38 +1329,87 @@ mod tests {
             assert_eq!(reply.status, 405, "{method}");
             assert_eq!(reply.body, "Method not allowed.\n");
             assert!(reply.headers.contains(&("allow", "GET, HEAD".to_string())));
-            assert!(reply.headers.contains(&(
-                "strict-transport-security",
-                crate::security::STRICT_TRANSPORT_SECURITY.to_string()
-            )));
+            assert_api_security_headers(&reply.headers, method);
         }
         let options = reply_of(handle("OPTIONS", "/", None, &manifest(), 0.0));
         assert_eq!(options.status, 204);
-        assert!(options.headers.contains(&(
-            "strict-transport-security",
-            crate::security::STRICT_TRANSPORT_SECURITY.to_string()
-        )));
+        assert_api_security_headers(&options.headers, "OPTIONS");
+    }
+
+    fn assert_api_security_headers(headers: &[(&'static str, String)], label: &str) {
+        let expected = [
+            (
+                "content-security-policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            ),
+            ("x-content-type-options", "nosniff"),
+            ("referrer-policy", "no-referrer"),
+            ("x-frame-options", "DENY"),
+            (
+                "strict-transport-security",
+                crate::security::STRICT_TRANSPORT_SECURITY,
+            ),
+        ];
+        for &(name, value) in &expected {
+            assert!(
+                headers.contains(&(name, value.to_string())),
+                "{label} missing {name}: {value}"
+            );
+        }
+        for &(name, value) in crate::security::API_SECURITY_HEADERS {
+            assert!(
+                headers.contains(&(name, value.to_string())),
+                "{label} missing shared {name}: {value}"
+            );
+        }
+        assert!(
+            !headers
+                .iter()
+                .any(|(name, value)| *name == "cross-origin-resource-policy"
+                    && value == "same-origin"),
+            "{label} must not send CORP same-origin"
+        );
     }
 
     #[test]
-    fn text_json_and_error_replies_carry_long_lived_hsts() {
-        let hsts = (
-            "strict-transport-security",
-            crate::security::STRICT_TRANSPORT_SECURITY.to_string(),
+    fn api_and_og_responses_carry_shared_security_headers() {
+        let hsts = crate::security::STRICT_TRANSPORT_SECURITY;
+        assert!(hsts.contains("max-age=31536000"));
+        assert!(hsts.contains("includeSubDomains"));
+        assert_eq!(hsts, "max-age=31536000; includeSubDomains");
+
+        assert_api_security_headers(&text(200, "ok\n").headers, "200 text");
+        assert_api_security_headers(
+            &with_fortune_id(text(200, "ok\n"), "art", 0).headers,
+            "200 fortune text",
         );
-        assert!(hsts.1.contains("max-age=31536000"));
-        assert!(hsts.1.contains("includeSubDomains"));
-        assert!(text(200, "ok\n").headers.contains(&hsts));
-        assert!(json(&serde_json::json!({"ok": true}))
-            .headers
-            .contains(&hsts));
-        assert!(text(429, "Too many requests.\n").headers.contains(&hsts));
-        assert!(text(400, "Invalid locale.\n").headers.contains(&hsts));
-        // `/og.png` success uses the same constant in `png_body` (wasm runtime).
-        assert_eq!(
-            crate::security::STRICT_TRANSPORT_SECURITY,
-            "max-age=31536000; includeSubDomains"
+        assert_api_security_headers(&json(&serde_json::json!({"ok": true})).headers, "200 json");
+        assert_api_security_headers(
+            &fortune_json("en", "art", 0, "ok\n").headers,
+            "200 fortune json",
         );
+        assert_api_security_headers(
+            &fortune_cowsay("art", 0, "ok\n", "COW").headers,
+            "200 fortune cowsay",
+        );
+        assert_api_security_headers(&reply_of(get("/health", None)).headers, "200 /health");
+        assert_api_security_headers(&reply_of(get("/missing", None)).headers, "404");
+        assert_api_security_headers(&text(400, "Invalid locale.\n").headers, "400");
+        assert_api_security_headers(&text(429, "Too many requests.\n").headers, "429");
+        assert_api_security_headers(&text(503, "Fortune service unavailable.\n").headers, "503");
+
+        let method_not_allowed = reply_of(handle("POST", "/", None, &manifest(), 0.0));
+        assert_eq!(method_not_allowed.status, 405);
+        assert_api_security_headers(&method_not_allowed.headers, "405");
+
+        let options = reply_of(handle("OPTIONS", "/", None, &manifest(), 0.0));
+        assert_eq!(options.status, 204);
+        assert_api_security_headers(&options.headers, "OPTIONS 204");
+
+        let png_headers = og_png_headers();
+        assert!(png_headers.contains(&("content-type", "image/png".to_string())));
+        assert!(png_headers.contains(&("cache-control", "public, max-age=86400".to_string())));
+        assert_api_security_headers(&png_headers, "/og.png");
     }
 
     #[test]
@@ -1363,6 +1421,7 @@ mod tests {
             .headers
             .iter()
             .any(|(name, _)| name.starts_with("access-control")));
+        assert_api_security_headers(&reply.headers, "GET disallowed origin");
 
         apply_cors(
             &mut reply,
@@ -1377,8 +1436,9 @@ mod tests {
         assert!(reply
             .headers
             .contains(&("access-control-expose-headers", "x-fortune-id".to_string())));
+        assert_api_security_headers(&reply.headers, "GET allowed origin");
 
-        let mut preflight = text(204, "");
+        let mut preflight = reply_of(handle("OPTIONS", "/", None, &manifest(), 0.0));
         apply_cors(
             &mut preflight,
             "OPTIONS",
@@ -1388,6 +1448,11 @@ mod tests {
         assert!(preflight
             .headers
             .contains(&("access-control-max-age", "3600".to_string())));
+        assert!(preflight.headers.contains(&(
+            "access-control-allow-origin",
+            "https://webfortune.app".to_string()
+        )));
+        assert_api_security_headers(&preflight.headers, "OPTIONS allowed origin");
     }
 
     #[test]

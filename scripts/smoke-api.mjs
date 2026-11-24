@@ -67,6 +67,17 @@ function assertFortuneId(id, label) {
 const SMOKE_REQUEST_BUDGET = 46;
 let requests = 0;
 
+const API_SECURITY_HEADERS = [
+  [
+    "content-security-policy",
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  ],
+  ["x-content-type-options", "nosniff"],
+  ["referrer-policy", "no-referrer"],
+  ["x-frame-options", "DENY"],
+  ["strict-transport-security", "max-age=31536000; includeSubDomains"],
+];
+
 async function request(path, status = 200, method = "GET", headers = {}) {
   requests += 1;
   const response = await fetch(`${base}${path}`, {
@@ -75,6 +86,18 @@ async function request(path, status = 200, method = "GET", headers = {}) {
     signal: AbortSignal.timeout(20000),
   });
   assert.equal(response.status, status, `${method} ${path}`);
+  for (const [name, expected] of API_SECURITY_HEADERS) {
+    assert.equal(
+      response.headers.get(name),
+      expected,
+      `${method} ${path} ${name}`,
+    );
+  }
+  assert.notEqual(
+    response.headers.get("cross-origin-resource-policy"),
+    "same-origin",
+    `${method} ${path} cross-origin-resource-policy`,
+  );
   if (origin)
     assert.equal(
       response.headers.get("access-control-allow-origin"),
