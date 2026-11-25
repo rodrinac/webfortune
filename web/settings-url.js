@@ -56,6 +56,22 @@ export function dailyParam(search) {
   return values.length === 1 && values[0] === "true";
 }
 
+// Settings the page can restore from a history entry or the initial URL.
+// Each value is allow-listed the same way as the first load. Nothing here is
+// safe to treat as HTML; callers must keep using text APIs and select values.
+export function readPageSettings(
+  search,
+  { locales, cows, categories, defaultLocale, defaultCow = "default" },
+) {
+  const locale = allowedParam(search, "locale", locales) || defaultLocale;
+  const cow = allowedParam(search, "cow", cows) || defaultCow;
+  const category = allowedParam(search, "category", categories) || "";
+  const length = allowedParam(search, "length", ["short", "long"]) || "";
+  const daily = dailyParam(search);
+  const fortune = daily ? "" : fortuneParam(search) || "";
+  return { locale, cow, category, length, daily, fortune };
+}
+
 // Query string for the settings that differ from the defaults. Param order
 // matches the share link: locale, cow, category, length, daily, then the exact
 // fortune. `Any` is the empty length and stays off the URL. Daily replaces the

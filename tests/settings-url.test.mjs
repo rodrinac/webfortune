@@ -6,6 +6,7 @@ import {
   fortuneParam,
   isFortuneId,
   isResourceName,
+  readPageSettings,
   settingsQuery,
 } from "../web/settings-url.js";
 
@@ -433,4 +434,103 @@ test("serializes the fortune id after the other settings", () => {
     }),
     "?category=off-color&fortune=off-color-1",
   );
+});
+
+const pageLists = {
+  locales,
+  cows,
+  categories,
+  defaultLocale: "en",
+};
+
+test("reads a history URL with the same allow-list as the first load", () => {
+  assert.deepEqual(
+    readPageSettings(
+      "?locale=pt&cow=tux&category=love&length=short&fortune=love-4",
+      pageLists,
+    ),
+    {
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      length: "short",
+      daily: false,
+      fortune: "love-4",
+    },
+  );
+  assert.deepEqual(readPageSettings("", pageLists), {
+    locale: "en",
+    cow: "default",
+    category: "",
+    length: "",
+    daily: false,
+    fortune: "",
+  });
+  assert.deepEqual(
+    readPageSettings("?locale=pt&length=long&fortune=geral-0", {
+      ...pageLists,
+      defaultLocale: "pt",
+    }),
+    {
+      locale: "pt",
+      cow: "default",
+      category: "",
+      length: "long",
+      daily: false,
+      fortune: "geral-0",
+    },
+  );
+});
+
+test("daily history drops the fortune id and rejects bad settings", () => {
+  assert.deepEqual(
+    readPageSettings(
+      "?locale=pt&cow=tux&category=love&length=short&daily=true&fortune=love-4",
+      pageLists,
+    ),
+    {
+      locale: "pt",
+      cow: "tux",
+      category: "love",
+      length: "short",
+      daily: true,
+      fortune: "",
+    },
+  );
+  assert.deepEqual(
+    readPageSettings(
+      "?locale=%3Csvg%2Fonload%3Dalert(1)%3E&cow=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&category=..%2F..%2Fetc&length=medium&daily=TRUE&fortune=love-01",
+      pageLists,
+    ),
+    {
+      locale: "en",
+      cow: "default",
+      category: "",
+      length: "",
+      daily: false,
+      fortune: "",
+    },
+  );
+  assert.deepEqual(
+    readPageSettings(
+      "?locale=pt&locale=en&cow=moose&category=nope&length=short&length=long&fortune=love-4&fortune=love-5",
+      pageLists,
+    ),
+    {
+      locale: "en",
+      cow: "default",
+      category: "",
+      length: "",
+      daily: false,
+      fortune: "",
+    },
+  );
+  const malicious = readPageSettings(
+    "?cow=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&fortune=%3Cscript%3E-1",
+    pageLists,
+  );
+  assert.equal(malicious.cow, "default");
+  assert.equal(malicious.fortune, "");
+  assert.equal(JSON.stringify(malicious).includes("<"), false);
+  assert.equal(JSON.stringify(malicious).includes("onerror"), false);
 });
