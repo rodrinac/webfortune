@@ -39,8 +39,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev -- --port 5173",
+    command: "npx vite build && npm run preview -- --port 5173",
     url: "http://127.0.0.1:5173",
+    env: { VITE_API_URL: "", VITE_GA_MEASUREMENT_ID: "" },
     reuseExistingServer: !process.env.CI,
   },
 });

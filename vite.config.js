@@ -25,6 +25,20 @@ function htmlSecurityHeaders() {
   return headers;
 }
 
+// Vite's dev server injects <style> tags for CSS/HMR, so only dev mode adds
+// 'unsafe-inline' to style-src. Preview and the Worker send the file verbatim.
+function devSecurityHeaders(headers) {
+  const csp = headers["content-security-policy"];
+  if (!csp) return headers;
+  return {
+    ...headers,
+    "content-security-policy": csp.replace(
+      /style-src\s+([^;]+)/,
+      "style-src $1 'unsafe-inline'",
+    ),
+  };
+}
+
 function googleAnalyticsPlugin(measurementId) {
   const bootstrap = googleTagBootstrap(measurementId);
   const snippet = googleTagSnippet(measurementId);
@@ -66,7 +80,7 @@ export default defineConfig(({ mode }) => {
     base: "./",
     build: { outDir: "../dist", emptyOutDir: true },
     server: {
-      headers: securityHeaders,
+      headers: devSecurityHeaders(securityHeaders),
       proxy: {
         "/api": {
           target: "http://127.0.0.1:8787",

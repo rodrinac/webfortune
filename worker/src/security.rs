@@ -157,12 +157,12 @@ mod tests {
         assert!(!script.contains("'unsafe-inline'"));
         assert!(!script.contains("'unsafe-eval'"));
         let style = directive(policy, "style-src");
-        assert!(style.contains("'self'"));
-        assert!(style.contains("'unsafe-inline'"));
-        assert!(style.contains("https://fonts.googleapis.com"));
+        assert_eq!(style, "style-src 'self'");
+        assert!(!style.contains("'unsafe-inline'"));
+        assert!(!style.contains("fonts.googleapis.com"));
         let font = directive(policy, "font-src");
-        assert!(font.contains("'self'"));
-        assert!(font.contains("https://fonts.gstatic.com"));
+        assert_eq!(font, "font-src 'self'");
+        assert!(!font.contains("fonts.gstatic.com"));
         let connect = directive(policy, "connect-src");
         assert!(connect.contains("'self'"));
         assert!(connect.contains("https://api.webfortune.app"));

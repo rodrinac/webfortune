@@ -1,0 +1,14 @@
+Self-hosted web fonts for webfortune.app
+
+DM Sans (variable weight)
+- Files: dm-sans-latin-wght-normal.woff2, dm-sans-latin-ext-wght-normal.woff2
+- Source: https://github.com/googlefonts/dm-fonts (packaged via @fontsource-variable/dm-sans 5.3.0)
+- License: SIL Open Font License 1.1 (see DM-SANS-LICENSE.txt in this directory)
+
+JetBrains Mono (variable weight)
+- Files: jetbrains-mono-latin-wght-normal.woff2, jetbrains-mono-latin-ext-wght-normal.woff2
+- Source: https://github.com/JetBrains/JetBrainsMono (packaged via @fontsource-variable/jetbrains-mono 5.3.0)
+- License: SIL Open Font License 1.1 (see JETBRAINS-MONO-LICENSE.txt in this directory)
+
+The rest of webfortune is MIT licensed. See the LICENSE file at the
+repository root.
