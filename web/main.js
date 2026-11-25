@@ -18,10 +18,8 @@ import {
   track,
 } from "./analytics.js";
 import {
-  allowedParam,
-  dailyParam,
-  fortuneParam,
   isFortuneId,
+  readPageSettings,
   settingsQuery,
 } from "./settings-url.js";
 
@@ -57,6 +55,10 @@ let dailyOn = false;
 let displayed = "Give me a moment. I'm chewing on a thought.";
 let cowArtwork = DEFAULT_COW;
 let busy = false;
+let navigation = 0;
+let navWaiters = [];
+let categoryLoad = 0;
+let cowLoad = 0;
 let copyTimer;
 let shareTimer;
 let screenshotTimer;
@@ -339,16 +341,54 @@ function currentSettings() {
   };
 }
 
-function syncSettingsUrl() {
+// Refresh and Space push a history entry after a new random fortune loads.
+// The first visit, settings changes, daily mode, invalid ids, failures, and
+// Back/Forward itself replace the current entry so they do not grow history.
+function syncSettingsUrl({ mode = "replace" } = {}) {
   const search = settingsQuery(currentSettings());
   const next = `${location.pathname}${search}${location.hash}`;
   if (next === `${location.pathname}${location.search}${location.hash}`) return;
-  history.replaceState(null, "", next);
+  if (mode === "push") history.pushState(null, "", next);
+  else history.replaceState(null, "", next);
 }
 
-function selectFromUrl(select, name) {
-  const requested = allowedParam(initialSearch, name, optionValues(select));
-  if (requested !== undefined) select.value = requested;
+function categoryNames() {
+  return optionValues(category).filter((value) => value !== "");
+}
+
+function pageLists() {
+  return {
+    locales: optionValues(locale),
+    cows: optionValues(cowStyle),
+    categories: categoryNames(),
+    defaultLocale,
+  };
+}
+
+function setControlsDisabled(disabled) {
+  refresh.disabled = disabled;
+  locale.disabled = disabled;
+  length.disabled = disabled;
+  daily.disabled = disabled;
+  category.disabled = disabled || category.options.length < 2;
+  cowStyle.disabled = disabled || cowStyle.options.length < 2;
+  copy.disabled = disabled || !fortune;
+  share.disabled = disabled || !fortune;
+  screenshot.disabled = disabled || !fortune;
+}
+
+function wakeNavigation() {
+  const waiters = navWaiters;
+  navWaiters = [];
+  for (const resolve of waiters) resolve();
+}
+
+function recordsFortuneVisit(reason, abandonedPinned) {
+  return (
+    !dailyOn &&
+    !abandonedPinned &&
+    (reason === "button" || reason === "keyboard")
+  );
 }
 
 function strings() {
@@ -499,18 +539,16 @@ function fortuneRequestPath(id) {
   return `/?${params}`;
 }
 
-async function loadFortune({ random = false, reason = "initial" } = {}) {
-  if (busy) return;
+async function loadFortune({
+  random = false,
+  reason = "initial",
+  ticket = navigation,
+  keepBusy = false,
+} = {}) {
+  if (ticket !== navigation) return;
+  if (busy && !keepBusy) return;
   busy = true;
-  refresh.disabled = true;
-  locale.disabled = true;
-  length.disabled = true;
-  daily.disabled = true;
-  category.disabled = true;
-  cowStyle.disabled = true;
-  copy.disabled = true;
-  share.disabled = true;
-  screenshot.disabled = true;
+  setControlsDisabled(true);
   clearTimeout(copyTimer);
   clearTimeout(shareTimer);
   clearTimeout(screenshotTimer);
@@ -526,6 +564,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
   let abandonedPinned = false;
   try {
     let response = await fetchApi(fortuneRequestPath(requestedId));
+    if (ticket !== navigation) return;
     let servedFromPinned = Boolean(requestedId);
     if (
       requestedId &&
@@ -535,6 +574,7 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
       servedFromPinned = false;
       fortuneId = "";
       response = await fetchApi(fortuneRequestPath(""));
+      if (ticket !== navigation) return;
     }
     if (!response.ok) {
       if (response.status === 429) throw new Error(strings().busy);
@@ -542,12 +582,15 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     }
     const text = (await response.text()).trim();
     if (!text) throw new Error(strings().quiet);
+    if (ticket !== navigation) return;
     fortune = displayed = text;
     const servedId = response.headers.get("x-fortune-id");
     if (dailyOn) fortuneId = "";
     else if (isFortuneId(servedId)) fortuneId = servedId;
     else if (!servedFromPinned) fortuneId = "";
-    syncSettingsUrl();
+    syncSettingsUrl({
+      mode: recordsFortuneVisit(reason, abandonedPinned) ? "push" : "replace",
+    });
     $("fortune-text").textContent = fortune;
     $("status").textContent = dailyOn
       ? strings().statusDaily
@@ -562,11 +605,13 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
         "language",
         "length",
         "daily",
+        "history",
       ].includes(reason)
         ? reason
         : "initial",
     });
   } catch (error) {
+    if (ticket !== navigation) return;
     if (abandonedPinned) {
       fortuneId = "";
       syncSettingsUrl();
@@ -583,16 +628,9 @@ async function loadFortune({ random = false, reason = "initial" } = {}) {
     }
   } finally {
     busy = false;
-    refresh.disabled = false;
-    locale.disabled = false;
-    length.disabled = false;
-    daily.disabled = false;
-    category.disabled = category.options.length < 2;
-    cowStyle.disabled = cowStyle.options.length < 2;
-    copy.disabled = !fortune;
-    share.disabled = !fortune;
-    screenshot.disabled = !fortune;
+    setControlsDisabled(false);
     stage.setAttribute("aria-busy", "false");
+    wakeNavigation();
   }
 }
 
@@ -623,32 +661,40 @@ async function loadCows() {
   }
 }
 
-async function loadCowArtwork() {
+async function loadCowArtwork(ticket = navigation) {
+  const load = ++cowLoad;
   const selected = cowStyle.value;
   cowStyle.disabled = true;
   try {
     const artwork = (await (await request(`/cows/${encodeURIComponent(selected)}`)).text()).trimEnd();
+    if (load !== cowLoad || ticket !== navigation) return false;
     if (!artwork || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(artwork))
       throw new Error("Invalid cow");
     cowArtwork = artwork;
     return true;
   } catch {
+    if (load !== cowLoad || ticket !== navigation) return false;
     cowStyle.value = "default";
     cowArtwork = DEFAULT_COW;
+    return false;
   } finally {
-    cowStyle.disabled = cowStyle.options.length < 2;
-    $("command").textContent = commandText();
-    renderCow();
-    syncSettingsUrl();
+    if (load === cowLoad && ticket === navigation) {
+      cowStyle.disabled = busy || cowStyle.options.length < 2;
+      $("command").textContent = commandText();
+      renderCow();
+      syncSettingsUrl();
+    }
   }
 }
 
 async function loadCategories() {
+  const load = ++categoryLoad;
   category.replaceChildren();
   try {
     const categories = await (
       await request(`/categories?locale=${currentLocale}`)
     ).json();
+    if (load !== categoryLoad) return;
     if (
       !Array.isArray(categories) ||
       !categories.every(
@@ -661,12 +707,13 @@ async function loadCategories() {
       category.add(new Option(value.replace(/[._-]/g, " "), value));
     category.disabled = busy || category.options.length < 2;
   } catch {
+    if (load !== categoryLoad) return;
     // Random fortunes remain usable if only the category endpoint is unavailable.
     category.replaceChildren(new Option(strings().unavailable, ""));
   }
 }
 
-async function loadLocales() {
+async function loadLocales(search) {
   try {
     const available = await (await request("/locales")).json();
     if (
@@ -691,8 +738,10 @@ async function loadLocales() {
     );
   }
   defaultLocale = fallbackLocale();
-  const requested = allowedParam(initialSearch, "locale", optionValues(locale));
-  currentLocale = requested || defaultLocale;
+  const { locale: nextLocale } = readPageSettings(search, pageLists());
+  currentLocale = optionValues(locale).includes(nextLocale)
+    ? nextLocale
+    : defaultLocale;
   locale.value = currentLocale;
   applyLocale();
 }
@@ -714,28 +763,57 @@ daily.addEventListener("click", () => {
   loadFortune({ random: true, reason: "daily" });
 });
 category.addEventListener("change", () => {
+  if (busy) return;
   fortuneId = "";
   syncSettingsUrl();
   loadFortune({ random: true, reason: "category" });
 });
 length.addEventListener("change", () => {
+  if (busy) return;
   fortuneId = "";
   syncSettingsUrl();
   loadFortune({ random: true, reason: "length" });
 });
 cowStyle.addEventListener("change", async () => {
+  if (busy) return;
+  const ticket = navigation;
   const selected = cowStyle.value;
-  if ((await loadCowArtwork()) && cowStyle.value === selected)
+  if (
+    (await loadCowArtwork(ticket)) &&
+    cowStyle.value === selected &&
+    ticket === navigation
+  )
     trackSiteEvent("change_cow");
 });
 locale.addEventListener("change", async () => {
+  const ticket = navigation;
+  if (busy) return;
+  busy = true;
+  setControlsDisabled(true);
   currentLocale = locale.value;
   fortuneId = "";
   applyLocale();
-  await loadCategories();
-  syncSettingsUrl();
-  await loadFortune({ random: true, reason: "language" });
-  renderCow();
+  let handedOff = false;
+  try {
+    await loadCategories();
+    if (ticket !== navigation) return;
+    syncSettingsUrl();
+    handedOff = true;
+    await loadFortune({
+      random: true,
+      reason: "language",
+      ticket,
+      keepBusy: true,
+    });
+    if (ticket !== navigation) return;
+    renderCow();
+  } finally {
+    if (!handedOff) {
+      busy = false;
+      setControlsDisabled(false);
+      wakeNavigation();
+    }
+  }
 });
 // The address bar stores the fortune id and any non-default settings, so
 // the shared link reopens this exact fortune, language, cow, category, and
@@ -955,6 +1033,10 @@ document.addEventListener("keydown", (event) => {
     loadFortune({ random: true, reason: "keyboard" });
   }
 });
+window.addEventListener("popstate", () => {
+  const ticket = ++navigation;
+  void restoreFromPopstate(ticket);
+});
 document.querySelector(".source-link").addEventListener("click", trackOutbound);
 $("support-link").addEventListener("click", trackOutbound);
 
@@ -1037,25 +1119,78 @@ function revealAnalyticsConsent() {
   showConsentBanner();
 }
 
+async function applyPageSettings(search, ticket = navigation) {
+  if (ticket !== navigation) return;
+  let settings = readPageSettings(search, pageLists());
+  const nextLocale = optionValues(locale).includes(settings.locale)
+    ? settings.locale
+    : defaultLocale;
+  if (nextLocale !== currentLocale) {
+    currentLocale = nextLocale;
+    locale.value = currentLocale;
+    applyLocale();
+    await loadCategories();
+    if (ticket !== navigation) return;
+    settings = readPageSettings(search, pageLists());
+  } else {
+    currentLocale = nextLocale;
+    locale.value = currentLocale;
+  }
+  category.value = categoryNames().includes(settings.category)
+    ? settings.category
+    : "";
+  const nextCow = optionValues(cowStyle).includes(settings.cow)
+    ? settings.cow
+    : "default";
+  const cowChanged = cowStyle.value !== nextCow;
+  cowStyle.value = nextCow;
+  length.value =
+    settings.length === "short" || settings.length === "long"
+      ? settings.length
+      : "";
+  dailyOn = settings.daily;
+  updateDailyText();
+  fortuneId = settings.fortune;
+  $("command").textContent = commandText();
+  if (cowChanged) {
+    await loadCowArtwork(ticket);
+    if (ticket !== navigation) return;
+  }
+}
+
+async function restoreFromPopstate(ticket) {
+  if (busy) {
+    await new Promise((resolve) => navWaiters.push(resolve));
+    if (ticket !== navigation) return;
+  }
+  if (busy || ticket !== navigation) return;
+  busy = true;
+  setControlsDisabled(true);
+  let handedOff = false;
+  try {
+    await applyPageSettings(location.search, ticket);
+    if (ticket !== navigation) return;
+    handedOff = true;
+    await loadFortune({ reason: "history", ticket, keepBusy: true });
+  } finally {
+    if (!handedOff) {
+      busy = false;
+      setControlsDisabled(false);
+      stage.setAttribute("aria-busy", "false");
+      wakeNavigation();
+    }
+  }
+}
+
 async function initialize() {
   prepareAnalytics();
   try {
     await Promise.all([
       waitForFonts(),
       (async () => {
-        await loadLocales();
+        await loadLocales(initialSearch);
         await Promise.all([loadCategories(), loadCows()]);
-        selectFromUrl(category, "category");
-        selectFromUrl(cowStyle, "cow");
-        const requestedLength = allowedParam(initialSearch, "length", [
-          "short",
-          "long",
-        ]);
-        if (requestedLength !== undefined) length.value = requestedLength;
-        dailyOn = dailyParam(initialSearch);
-        updateDailyText();
-        fortuneId = dailyOn ? "" : fortuneParam(initialSearch) || "";
-        if (cowStyle.value !== "default") await loadCowArtwork();
+        await applyPageSettings(initialSearch);
         // Normalize before the fortune request so an invalid query does not
         // linger in the address bar while the page is still loading.
         syncSettingsUrl();
