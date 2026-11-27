@@ -18,6 +18,7 @@ import {
   parseCowNames,
   readFortunes,
   renderCow,
+  THOUGHTS_SLOT,
 } from "../scripts/generate-worker-assets.mjs";
 
 // Builds the strfile index the same way strfile(1) does for "%"-delimited files.
@@ -92,6 +93,31 @@ test("renders cow templates the way cowsay interpolates them", () => {
 EOC
 `),
     "        \\   ^__^\n         \\  (oo)\\_______\n            (__)\\       )\\/\\\n                ||----w |\n                ||     ||",
+  );
+  const cow = `$the_cow = <<"EOC";
+        $thoughts   ^__^
+         $thoughts  ($eyes)\\\\_______
+            (__)\\\\       )\\\\/\\\\
+             $tongue ||----w |
+                ||     ||
+EOC
+`;
+  assert.equal(
+    renderCow(cow, "o"),
+    "        o   ^__^\n         o  (oo)\\_______\n            (__)\\       )\\/\\\n                ||----w |\n                ||     ||",
+  );
+  assert.equal(THOUGHTS_SLOT, "\u{E000}");
+  assert.equal(
+    renderCow(cow, THOUGHTS_SLOT).split(THOUGHTS_SLOT).join("\\"),
+    renderCow(cow),
+  );
+  assert.equal(
+    renderCow(cow, THOUGHTS_SLOT).split(THOUGHTS_SLOT).join("o"),
+    renderCow(cow, "o"),
+  );
+  assert.equal(
+    renderCow('$the_cow = <<"EOC";\n   ${thoughts}____\nEOC\n', "o"),
+    "   o____",
   );
   assert.equal(
     renderCow(`$extra = chop($eyes);\n$eyes .= ($extra x 2);\n$the_cow = <<EOC;\n($eyes)\nEOC\n`),
@@ -175,7 +201,10 @@ test("generates locale databases, categories and cows", () => {
     ),
     ["Bug.\n", "Feature.\n"],
   );
-  assert.equal(readFileSync(join(outDir, "cows", "tux.txt"), "utf8"), "  \\ tux");
+  assert.equal(
+    readFileSync(join(outDir, "cows", "tux.txt"), "utf8"),
+    `  ${THOUGHTS_SLOT} tux`,
+  );
   assert.equal(
     readFileSync(join(outDir, "cows", "default.txt"), "utf8"),
     "  $thoughts\n   moo",

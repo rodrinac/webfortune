@@ -61,6 +61,13 @@ pub enum Action {
         index: usize,
         cow: String,
     },
+    /// The same fortune as `Fortune`, drawn as a cowthink bubble plus cow art.
+    FortuneCowthink {
+        locale: String,
+        database: String,
+        index: usize,
+        cow: String,
+    },
     /// Render a 1200×1200 PNG. `fortune` is absent for the branded default card.
     OgImage(OgImage),
 }
@@ -112,6 +119,8 @@ enum ResponseFormat<'a> {
     Json,
     /// `cow` is the installed cow name, or `default` when the parameter is omitted.
     Cowsay(&'a str),
+    /// Same cow selection as `Cowsay`, drawn as a thought bubble.
+    Cowthink(&'a str),
 }
 
 /// `fortune -s` / `fortune -l`. The manifest lists the matching indexes; a
@@ -244,14 +253,36 @@ struct FortuneJsonBody<'a> {
     category: &'a str,
 }
 
-/// Plain-text body for `GET /?format=cowsay`. The bubble matches `web/cowsay.js`
-/// and the body ends with a newline. The `x-fortune-id` header is still set.
-pub fn fortune_cowsay(database: &str, index: usize, fortune: &str, cow_art: &str) -> Reply {
-    let mut body = crate::cowsay::render(fortune, crate::cowsay::WRAP_WIDTH, cow_art);
+fn fortune_balloon(
+    database: &str,
+    index: usize,
+    fortune: &str,
+    cow_art: &str,
+    think: bool,
+) -> Reply {
+    let mut body = if think {
+        crate::cowsay::render_think(fortune, crate::cowsay::WRAP_WIDTH, cow_art)
+    } else {
+        crate::cowsay::render(fortune, crate::cowsay::WRAP_WIDTH, cow_art)
+    };
     if !body.ends_with('\n') {
         body.push('\n');
     }
     with_fortune_id(text(200, body), database, index)
+}
+
+/// Plain-text body for `GET /?format=cowsay`. The bubble matches `web/cowsay.js`
+/// and the body ends with a newline. The `x-fortune-id` header is still set.
+/// A `$thoughts` slot in `cow_art` is drawn as `\`.
+pub fn fortune_cowsay(database: &str, index: usize, fortune: &str, cow_art: &str) -> Reply {
+    fortune_balloon(database, index, fortune, cow_art, false)
+}
+
+/// Plain-text body for `GET /?format=cowthink`. The bubble uses `(` and `)`
+/// on every line, the body ends with a newline, and `x-fortune-id` is still
+/// set. A `$thoughts` slot in `cow_art` is drawn as `o`.
+pub fn fortune_cowthink(database: &str, index: usize, fortune: &str, cow_art: &str) -> Reply {
+    fortune_balloon(database, index, fortune, cow_art, true)
 }
 
 /// JSON body for `GET /?format=json`. `category` is the database the fortune
@@ -316,10 +347,10 @@ fn parse_query_with<'a>(
         });
     };
 
-    // `cow` is part of the fortune query only for a single `format=cowsay`.
-    // Every other request still rejects it while scanning parameters, so the
-    // error stays the unsupported-parameter response.
-    let allow_cow = allow_format && cowsay_format(query);
+    // `cow` is part of the fortune query only for a single `format=cowsay`
+    // or `format=cowthink`. Every other request still rejects it while
+    // scanning parameters, so the error stays the unsupported-parameter response.
+    let allow_cow = allow_format && cow_format(query);
     let mut locale = None;
     let mut category = None;
     let mut fortune = None;
@@ -362,12 +393,16 @@ fn parse_query_with<'a>(
     let format = match response_format {
         None => ResponseFormat::Text,
         Some("json") => ResponseFormat::Json,
-        Some("cowsay") => {
-            let name = cow.unwrap_or("default");
-            if !valid_resource_name(name) {
+        Some(name @ ("cowsay" | "cowthink")) => {
+            let cow_name = cow.unwrap_or("default");
+            if !valid_resource_name(cow_name) {
                 return Err("Invalid cow.\n");
             }
-            ResponseFormat::Cowsay(name)
+            if name == "cowthink" {
+                ResponseFormat::Cowthink(cow_name)
+            } else {
+                ResponseFormat::Cowsay(cow_name)
+            }
         }
         Some(_) => return Err("Invalid format.\n"),
     };
@@ -402,8 +437,8 @@ fn parse_query_with<'a>(
     })
 }
 
-/// True when the query has one `format=cowsay` parameter and no second `format`.
-fn cowsay_format(query: &str) -> bool {
+/// True when the query has one `format=cowsay` or `format=cowthink` and no second `format`.
+fn cow_format(query: &str) -> bool {
     let mut format = None;
     for parameter in query.split('&') {
         let Some((name, value)) = parameter.split_once('=') else {
@@ -413,7 +448,7 @@ fn cowsay_format(query: &str) -> bool {
             return false;
         }
     }
-    format == Some("cowsay")
+    matches!(format, Some("cowsay" | "cowthink"))
 }
 
 fn find_locale<'a>(manifest: &'a Manifest, id: &str) -> Option<&'a Locale> {
@@ -607,6 +642,19 @@ fn apply_format(action: Action, format: ResponseFormat<'_>) -> Action {
             index,
             cow: cow.to_string(),
         },
+        (
+            ResponseFormat::Cowthink(cow),
+            Action::Fortune {
+                locale,
+                database,
+                index,
+            },
+        ) => Action::FortuneCowthink {
+            locale,
+            database,
+            index,
+            cow: cow.to_string(),
+        },
         (_, action) => action,
     }
 }
@@ -616,7 +664,7 @@ fn fortune(manifest: &Manifest, query: Option<&str>, random: f64, today: &str) -
         Ok(query) => query,
         Err(error) => return Action::Reply(text(400, error)),
     };
-    if let ResponseFormat::Cowsay(cow) = query.format {
+    if let ResponseFormat::Cowsay(cow) | ResponseFormat::Cowthink(cow) = query.format {
         if !manifest.cows.iter().any(|name| name == cow) {
             return Action::Reply(text(404, "Cow not found.\n"));
         }
@@ -762,7 +810,8 @@ fn og_image(manifest: &Manifest, query: Option<&str>) -> Result<OgImage, Reply> 
             Action::Cow(_)
             | Action::OgImage(_)
             | Action::FortuneJson { .. }
-            | Action::FortuneCowsay { .. } => return Err(text(500, "Failed to load fortune.\n")),
+            | Action::FortuneCowsay { .. }
+            | Action::FortuneCowthink { .. } => return Err(text(500, "Failed to load fortune.\n")),
         }
     } else if !query.category.is_empty() {
         let locale = find_locale(manifest, query.locale).expect("validated locale");
@@ -1290,20 +1339,30 @@ mod tests {
                 "/",
                 Some("locale=pt&category=art&format=cowsay&cow=default"),
             ),
+            ("/", Some("format=cowthink")),
+            ("/", Some("format=cowthink&cow=tux&fortune=art-1")),
+            (
+                "/",
+                Some("locale=pt&category=art&format=cowthink&cow=default"),
+            ),
             ("/", Some("length=short")),
             ("/", Some("length=long&category=art")),
             ("/", Some("length=nope")),
             ("/", Some("length=short&fortune=art-0")),
             ("/", Some("length=short&format=json")),
             ("/", Some("length=long&format=cowsay&cow=tux")),
+            ("/", Some("length=long&format=cowthink&cow=tux")),
             ("/", Some("daily=true")),
             ("/", Some("daily=true&category=art&format=json")),
             ("/", Some("daily=true&locale=pt&format=cowsay&cow=tux")),
+            ("/", Some("daily=true&locale=pt&format=cowthink&cow=tux")),
             ("/", Some("daily=true&length=short")),
             ("/", Some("daily=nope")),
             ("/", Some("daily=true&fortune=art-0")),
             ("/", Some("format=cowsay&cow=moose")),
             ("/", Some("format=cowsay&cow=../etc")),
+            ("/", Some("format=cowthink&cow=moose")),
+            ("/", Some("format=cowthink&cow=../etc")),
             ("/health", None),
             ("/locales", None),
             ("/og.png", None),
@@ -1391,6 +1450,10 @@ mod tests {
         assert_api_security_headers(
             &fortune_cowsay("art", 0, "ok\n", "COW").headers,
             "200 fortune cowsay",
+        );
+        assert_api_security_headers(
+            &fortune_cowthink("art", 0, "ok\n", "COW").headers,
+            "200 fortune cowthink",
         );
         assert_api_security_headers(&reply_of(get("/health", None)).headers, "200 /health");
         assert_api_security_headers(&reply_of(get("/missing", None)).headers, "404");
@@ -1595,6 +1658,12 @@ mod tests {
                 database,
                 index,
                 ..
+            }
+            | Action::FortuneCowthink {
+                locale,
+                database,
+                index,
+                ..
             } => Action::Fortune {
                 locale,
                 database,
@@ -1710,6 +1779,9 @@ mod tests {
             "format=json ",
             "format=cowsay ",
             "format=COWSAY",
+            "format=cowthink ",
+            "format=COWTHINK",
+            "format=think",
             "format=xml",
         ] {
             let reply = reply_of(get("/", Some(query)));
@@ -1768,6 +1840,10 @@ mod tests {
         );
         assert_eq!(
             reply_of(get("/categories", Some("format=cowsay"))).body,
+            "Only one locale and category parameter are supported.\n"
+        );
+        assert_eq!(
+            reply_of(get("/categories", Some("format=cowthink"))).body,
             "Only one locale and category parameter are supported.\n"
         );
         assert_eq!(
@@ -1865,6 +1941,11 @@ mod tests {
             "format=cowsay&cow=a%20b",
             "format=cowsay&cow=a/b",
             "format=cowsay&cow=has space",
+            "format=cowthink&cow=../etc",
+            "format=cowthink&cow=",
+            "format=cowthink&cow=a%20b",
+            "format=cowthink&cow=a/b",
+            "format=cowthink&cow=has space",
         ] {
             let reply = reply_of(get("/", Some(query)));
             assert_eq!(
@@ -1883,6 +1964,11 @@ mod tests {
             "cow=moose&format=cowsay",
             "format=cowsay&cow=moose&fortune=art-99",
             "format=cowsay&cow=moose&category=nope",
+            "format=cowthink&cow=moose",
+            "format=cowthink&cow=..",
+            "cow=moose&format=cowthink",
+            "format=cowthink&cow=moose&fortune=art-99",
+            "format=cowthink&cow=moose&category=nope",
         ] {
             let reply = reply_of(get("/", Some(query)));
             assert_eq!(
@@ -1903,6 +1989,7 @@ mod tests {
             "locale=fr&cow=tux",
             "cow=tux&locale",
             "format=cowsay&cow=tux&cow=default",
+            "format=cowthink&cow=tux&cow=default",
         ] {
             let reply = reply_of(get("/", Some(query)));
             assert_eq!(
@@ -1924,6 +2011,22 @@ mod tests {
                 "Fortune category not found.\n",
             ),
             ("format=cowsay&category=../etc", 400, "Invalid category.\n"),
+            ("format=cowthink&locale=fr", 400, "Unsupported locale.\n"),
+            (
+                "format=cowthink&fortune=art-99",
+                404,
+                "Fortune not found.\n",
+            ),
+            (
+                "format=cowthink&category=nope",
+                404,
+                "Fortune category not found.\n",
+            ),
+            (
+                "format=cowthink&category=../etc",
+                400,
+                "Invalid category.\n",
+            ),
         ] {
             let reply = reply_of(get("/", Some(query)));
             assert_eq!(
@@ -1975,6 +2078,30 @@ mod tests {
                 assert_eq!(index, 1);
             }
             other => panic!("expected tux, got {other:?}"),
+        }
+        let missing_think = reply_of(handle("GET", "/", Some("format=cowthink"), &manifest, 0.0));
+        assert_eq!(
+            (missing_think.status, missing_think.body.as_str()),
+            (404, "Cow not found.\n")
+        );
+        match handle(
+            "GET",
+            "/",
+            Some("format=cowthink&cow=tux&fortune=art-1"),
+            &manifest,
+            0.9,
+        ) {
+            Action::FortuneCowthink {
+                cow,
+                database,
+                index,
+                ..
+            } => {
+                assert_eq!(cow, "tux");
+                assert_eq!(database, "art");
+                assert_eq!(index, 1);
+            }
+            other => panic!("expected tux cowthink, got {other:?}"),
         }
     }
 
@@ -2035,6 +2162,168 @@ mod tests {
 
         let markup = fortune_cowsay("art", 2, "<script>alert(\"1\")</script>\n", "X");
         assert!(markup.body.contains("<script>alert(\"1\")</script>"));
+        assert!(!markup.body.contains("&lt;"));
+        assert!(markup.body.ends_with("\nX\n"));
+
+        // A `$thoughts` slot still draws the cowsay tail, not `o`.
+        let slot = crate::cowsay::THOUGHTS_SLOT;
+        let slotted = format!("   {slot}\n    {slot} tux");
+        let with_slot = fortune_cowsay("art", 0, "Moo.\n", &slotted);
+        assert!(with_slot.body.contains("< Moo. >"));
+        assert!(with_slot.body.contains("   \\\n    \\ tux\n"));
+        assert!(!with_slot.body.contains(slot));
+    }
+
+    #[test]
+    fn cowthink_format_selects_the_same_fortune_as_plain_text_and_cowsay() {
+        let cases = [
+            (None, "format=cowthink", "format=cowsay", "default", 0.0),
+            (
+                Some("locale=en"),
+                "locale=en&format=cowthink&cow=default",
+                "locale=en&format=cowsay&cow=default",
+                "default",
+                0.4,
+            ),
+            (
+                Some("category=art"),
+                "category=art&format=cowthink&cow=tux",
+                "category=art&format=cowsay&cow=tux",
+                "tux",
+                0.999,
+            ),
+            (
+                Some("fortune=zippy-2"),
+                "cow=tux&format=cowthink&fortune=zippy-2",
+                "cow=tux&format=cowsay&fortune=zippy-2",
+                "tux",
+                0.2,
+            ),
+            (
+                Some("locale=pt&fortune=brasil-3"),
+                "locale=pt&fortune=brasil-3&format=cowthink",
+                "locale=pt&fortune=brasil-3&format=cowsay",
+                "default",
+                0.7,
+            ),
+            (
+                Some("category=art&fortune=art-1"),
+                "format=cowthink&cow=tux&category=art&fortune=art-1",
+                "format=cowsay&cow=tux&category=art&fortune=art-1",
+                "tux",
+                0.1,
+            ),
+            (
+                Some("locale=pt"),
+                "format=cowthink&locale=pt&cow=tux",
+                "format=cowsay&locale=pt&cow=tux",
+                "tux",
+                0.5,
+            ),
+            (
+                Some("category="),
+                "category=&format=cowthink",
+                "category=&format=cowsay",
+                "default",
+                0.4,
+            ),
+        ];
+        for (plain, think, say, cow, random) in cases {
+            let plain_action = handle("GET", "/", plain, &manifest(), random);
+            let think_action = handle("GET", "/", Some(think), &manifest(), random);
+            let say_action = handle("GET", "/", Some(say), &manifest(), random);
+            assert!(
+                matches!(plain_action, Action::Fortune { .. }),
+                "plain {plain:?} stayed text: {plain_action:?}"
+            );
+            match think_action {
+                Action::FortuneCowthink {
+                    cow: chosen,
+                    locale,
+                    database,
+                    index,
+                } => {
+                    assert_eq!(chosen, cow, "{think}");
+                    let picked = Action::Fortune {
+                        locale,
+                        database,
+                        index,
+                    };
+                    assert_eq!(picked, plain_action, "{plain:?} vs {think}");
+                    assert_eq!(picked, as_plain_fortune(say_action), "{think} vs {say}");
+                }
+                other => panic!("cowthink {think}: {other:?}"),
+            }
+            assert_eq!(
+                handle("HEAD", "/", Some(think), &manifest(), random),
+                handle("GET", "/", Some(think), &manifest(), random),
+                "HEAD {think}"
+            );
+        }
+    }
+
+    #[test]
+    fn cowthink_body_wraps_fortunes_and_draws_an_o_trail() {
+        let fortune = "line one\nline two is longer\nshort\n";
+        let slot = crate::cowsay::THOUGHTS_SLOT;
+        let art = format!("   {slot}\n    {slot} tux");
+        let reply = fortune_cowthink("off-color", 1, fortune, &art);
+        assert_eq!(reply.status, 200);
+        assert!(reply.headers.contains(&("content-type", TEXT.to_string())));
+        assert!(reply
+            .headers
+            .contains(&("cache-control", "no-store".to_string())));
+        assert!(reply
+            .headers
+            .contains(&("x-content-type-options", "nosniff".to_string())));
+        assert!(reply.headers.contains(&(
+            "strict-transport-security",
+            crate::security::STRICT_TRANSPORT_SECURITY.to_string()
+        )));
+        assert!(reply
+            .headers
+            .contains(&("x-fortune-id", "off-color-1".to_string())));
+        assert_eq!(
+            reply.body,
+            [
+                " ____________________",
+                "( line one           )",
+                "( line two is longer )",
+                "( short              )",
+                " --------------------",
+                "   o",
+                "    o tux",
+                "",
+            ]
+            .join("\n")
+        );
+        assert!(reply.body.ends_with('\n'));
+        assert!(!reply.body.contains('<'));
+        assert!(!reply.body.contains(slot));
+        assert!(!reply.body.contains('\\'));
+
+        let say = fortune_cowsay("off-color", 1, fortune, &art);
+        assert!(say.body.contains("/ line one           \\"));
+        assert!(say.body.contains("   \\\n    \\ tux\n"));
+        assert_eq!(
+            say.headers.iter().find(|(name, _)| *name == "x-fortune-id"),
+            reply
+                .headers
+                .iter()
+                .find(|(name, _)| *name == "x-fortune-id")
+        );
+
+        let single = fortune_cowthink("art", 0, "Moo.\n", "COW");
+        assert!(single
+            .headers
+            .contains(&("x-fortune-id", "art-0".to_string())));
+        assert_eq!(
+            single.body,
+            [" ______", "( Moo. )", " ------", "COW", ""].join("\n")
+        );
+
+        let markup = fortune_cowthink("art", 2, "<script>alert(\"1\")</script>\n", "X");
+        assert!(markup.body.contains("( <script>alert(\"1\")</script> )"));
         assert!(!markup.body.contains("&lt;"));
         assert!(markup.body.ends_with("\nX\n"));
     }
@@ -2205,6 +2494,27 @@ mod tests {
                 }
                 other => panic!("cowsay {cowsay}: {other:?}"),
             }
+            let cowthink = cowsay.replace("format=cowsay", "format=cowthink");
+            match length_at(&cowthink, random) {
+                Action::FortuneCowthink {
+                    cow: chosen,
+                    locale,
+                    database,
+                    index,
+                } => {
+                    assert_eq!(chosen, cow, "{cowthink}");
+                    assert_eq!(
+                        Action::Fortune {
+                            locale,
+                            database,
+                            index,
+                        },
+                        expected,
+                        "{cowthink}"
+                    );
+                }
+                other => panic!("cowthink {cowthink}: {other:?}"),
+            }
             assert_eq!(
                 handle("HEAD", "/", Some(plain), &length_manifest(), random),
                 length_at(plain, random),
@@ -2259,6 +2569,7 @@ mod tests {
             "fortune=zippy-2&length=long",
             "length=long&format=json&fortune=zippy-2",
             "format=cowsay&cow=tux&length=short&fortune=art-1",
+            "format=cowthink&cow=tux&length=short&fortune=art-1",
             "length=short&fortune=art-99",
             "locale=pt&length=long&fortune=brasil-3",
             "category=art&length=short&fortune=art-0&format=json",
@@ -2282,6 +2593,7 @@ mod tests {
             ("length=long&locale=fr", "Unsupported locale.\n"),
             ("length=short&category=../etc", "Invalid category.\n"),
             ("length=short&format=cowsay&cow=../etc", "Invalid cow.\n"),
+            ("length=short&format=cowthink&cow=../etc", "Invalid cow.\n"),
         ] {
             let reply = reply_of(get("/", Some(query)));
             assert_eq!((reply.status, reply.body.as_str()), (400, body), "{query}");
@@ -2315,6 +2627,10 @@ mod tests {
                 "No fortune of that length.\n",
             ),
             (
+                "category=poem&length=short&format=cowthink&cow=tux",
+                "No fortune of that length.\n",
+            ),
+            (
                 "category=nope&length=short",
                 "Fortune category not found.\n",
             ),
@@ -2323,6 +2639,7 @@ mod tests {
                 "Fortune category not found.\n",
             ),
             ("length=short&format=cowsay&cow=moose", "Cow not found.\n"),
+            ("length=short&format=cowthink&cow=moose", "Cow not found.\n"),
         ] {
             let reply = reply_of(length_at(query, 0.4));
             assert_eq!((reply.status, reply.body.as_str()), (404, body), "{query}");
@@ -2372,6 +2689,12 @@ mod tests {
                 index,
             }
             | Action::FortuneCowsay {
+                locale,
+                database,
+                index,
+                ..
+            }
+            | Action::FortuneCowthink {
                 locale,
                 database,
                 index,
@@ -2523,9 +2846,33 @@ mod tests {
             }
             other => panic!("expected cowsay, got {other:?}"),
         }
+        match on_date(
+            &manifest,
+            "format=cowthink&cow=tux&daily=true&category=art",
+            0.4,
+            today,
+        ) {
+            Action::FortuneCowthink {
+                cow,
+                locale,
+                database,
+                index,
+            } => {
+                assert_eq!(cow, "tux");
+                assert_eq!(
+                    (locale, database, index),
+                    fortune_key(&on_date(&manifest, "daily=true&category=art", 0.6, today))
+                );
+            }
+            other => panic!("expected cowthink, got {other:?}"),
+        }
         match on_date(&manifest, "daily=true&format=cowsay", 0.5, today) {
             Action::FortuneCowsay { cow, .. } => assert_eq!(cow, "default"),
             other => panic!("expected default cow, got {other:?}"),
+        }
+        match on_date(&manifest, "daily=true&format=cowthink", 0.5, today) {
+            Action::FortuneCowthink { cow, .. } => assert_eq!(cow, "default"),
+            other => panic!("expected default cowthink, got {other:?}"),
         }
 
         let length_manifest = length_manifest();
@@ -2607,6 +2954,35 @@ mod tests {
             }
             other => panic!("expected cowsay, got {other:?}"),
         }
+        match on_date(
+            &length_manifest,
+            "daily=true&length=long&format=cowthink&cow=tux&category=art",
+            0.25,
+            today,
+        ) {
+            Action::FortuneCowthink {
+                cow,
+                locale,
+                database,
+                index,
+            } => {
+                assert_eq!(cow, "tux");
+                assert_eq!(
+                    Action::Fortune {
+                        locale,
+                        database,
+                        index,
+                    },
+                    on_date(
+                        &length_manifest,
+                        "category=art&length=long&daily=true",
+                        0.75,
+                        today
+                    )
+                );
+            }
+            other => panic!("expected cowthink, got {other:?}"),
+        }
 
         // A date with no matching length list is the same 404 as a random draw.
         let missing = reply_of(on_date(&manifest, "daily=true&length=long", 0.4, today));
@@ -2626,6 +3002,16 @@ mod tests {
             today,
         ));
         assert_eq!((cow.status, cow.body.as_str()), (404, "Cow not found.\n"));
+        let think = reply_of(on_date(
+            &manifest,
+            "daily=true&format=cowthink&cow=moose",
+            0.4,
+            today,
+        ));
+        assert_eq!(
+            (think.status, think.body.as_str()),
+            (404, "Cow not found.\n")
+        );
     }
 
     #[test]
@@ -2677,6 +3063,7 @@ mod tests {
             "fortune=zippy-2&daily=true",
             "daily=true&format=json&fortune=art-1",
             "format=cowsay&cow=tux&daily=true&fortune=zippy-2",
+            "format=cowthink&cow=tux&daily=true&fortune=zippy-2",
             "locale=pt&daily=true&fortune=brasil-3",
             "category=art&daily=true&fortune=art-0&format=json",
             "daily=true&fortune=art-99",
@@ -2709,6 +3096,7 @@ mod tests {
             ("format=xml&daily=true", "Invalid format.\n"),
             ("daily=true&length=nope", "Invalid length.\n"),
             ("daily=true&format=cowsay&cow=../etc", "Invalid cow.\n"),
+            ("daily=true&format=cowthink&cow=../etc", "Invalid cow.\n"),
         ] {
             let reply = reply_of(get("/", Some(query)));
             assert_eq!((reply.status, reply.body.as_str()), (400, body), "{query}");

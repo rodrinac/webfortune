@@ -100,9 +100,16 @@ export function parseCowArt(output) {
   return art;
 }
 
+// U+E000 stands in for the `$thoughts` slot in a cow file. The Worker fills it
+// with `\` for cowsay (and for `/cows/{name}` and `/og.png`) or `o` for
+// cowthink. Keep this equal to `THOUGHTS_SLOT` in worker/src/cowsay.rs.
+export const THOUGHTS_SLOT = "\u{E000}";
+
 // cowsay `do`s the .cow file. Asset generation only keeps the figure, so it
 // does not need Perl or the Text::CharWidth module the speech bubble uses.
-export function renderCow(source) {
+// `thoughts` defaults to the cowsay tail. Pass `THOUGHTS_SLOT` to keep the
+// slot distinguishable from the other backslashes in the figure.
+export function renderCow(source, thoughts = "\\") {
   const marker = source.match(
     /<<(?:"([A-Za-z0-9_]+)"|'([A-Za-z0-9_]+)'|([A-Za-z0-9_]+));?\n/,
   );
@@ -121,7 +128,7 @@ export function renderCow(source) {
     const extra = eyes.slice(-1);
     eyes = `${eyes.slice(0, -1)}${extra.repeat(2)}`;
   }
-  return interpolateCow(body, { eyes, tongue: "  ", thoughts: "\\" });
+  return interpolateCow(body, { eyes, tongue: "  ", thoughts });
 }
 
 function interpolateCow(body, vars) {
@@ -235,7 +242,7 @@ export function generate({ fortuneDir, outDir, cowDir }) {
   for (const name of names) {
     writeFileSync(
       join(outDir, "cows", `${name}.txt`),
-      renderCow(readFileSync(join(cowDir, `${name}.cow`), "utf8")),
+      renderCow(readFileSync(join(cowDir, `${name}.cow`), "utf8"), THOUGHTS_SLOT),
     );
     manifest.cows.push(name);
   }
