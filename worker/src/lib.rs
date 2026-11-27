@@ -77,7 +77,9 @@ mod runtime {
         match action {
             Action::Reply(reply) => reply,
             Action::Cow(name) => match asset(assets, &format!("cows/{name}.txt")).await {
-                Some(art) => api::text(200, art),
+                // Assets keep the `$thoughts` slot. `/cows/{name}` is the
+                // cowsay figure the web UI draws, so the slot is `\`.
+                Some(art) => api::text(200, crate::cowsay::with_thoughts(&art, "\\")),
                 None => api::text(503, "Failed to load cows.\n"),
             },
             Action::Fortune {
@@ -95,19 +97,13 @@ mod runtime {
                 database: name,
                 index,
                 cow,
-            } => {
-                // Same asset path as `/cows/{name}` and `render_og`.
-                let Some(art) = asset(assets, &format!("cows/{cow}.txt")).await else {
-                    return api::text(503, "Failed to load cows.\n");
-                };
-                match database(assets, &locale, &name)
-                    .await
-                    .and_then(|fortunes| fortunes.get(index).cloned())
-                {
-                    Some(fortune) => api::fortune_cowsay(&name, index, &fortune, &art),
-                    None => api::text(503, "Failed to load fortune.\n"),
-                }
-            }
+            } => fortune_cow_reply(assets, &locale, &name, index, &cow, false).await,
+            Action::FortuneCowthink {
+                locale,
+                database: name,
+                index,
+                cow,
+            } => fortune_cow_reply(assets, &locale, &name, index, &cow, true).await,
             // Preview images are rendered before resolve; this keeps the match
             // exhaustive if a caller forwards the action.
             Action::OgImage(_) => api::text(500, "Failed to render preview.\n"),
@@ -187,10 +183,35 @@ mod runtime {
         text_response(reply, &request, &env, &method)
     }
 
+    async fn fortune_cow_reply(
+        assets: &Fetcher,
+        locale: &str,
+        name: &str,
+        index: usize,
+        cow: &str,
+        think: bool,
+    ) -> Reply {
+        // Same asset path as `/cows/{name}` and `render_og`. The `$thoughts`
+        // slot stays in the file; `fortune_cowsay` / `fortune_cowthink` fill it.
+        let Some(art) = asset(assets, &format!("cows/{cow}.txt")).await else {
+            return api::text(503, "Failed to load cows.\n");
+        };
+        match database(assets, locale, name)
+            .await
+            .and_then(|fortunes| fortunes.get(index).cloned())
+        {
+            Some(fortune) if think => api::fortune_cowthink(name, index, &fortune, &art),
+            Some(fortune) => api::fortune_cowsay(name, index, &fortune, &art),
+            None => api::text(503, "Failed to load fortune.\n"),
+        }
+    }
+
     async fn render_og(assets: &Fetcher, image: &OgImage) -> std::result::Result<Vec<u8>, Reply> {
         let Some(cow) = asset(assets, &format!("cows/{}.txt", image.cow)).await else {
             return Err(api::text(503, "Failed to load cows.\n"));
         };
+        // The card is a speech bubble, so `$thoughts` stays the cowsay tail.
+        let cow = crate::cowsay::with_thoughts(&cow, "\\");
         let message = if let Some(fortune) = &image.fortune {
             match database(assets, &image.locale, &fortune.database)
                 .await

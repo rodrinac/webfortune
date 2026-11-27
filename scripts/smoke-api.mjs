@@ -63,8 +63,8 @@ function assertFortuneId(id, label) {
 // do not. CI curls /health once before this script. The manual deploy workflow
 // curls it twice in that window. The tag workflow adds one fetch when /health
 // reports the release version. Those callers add at most two probes. Stay under
-// the remainder so those probes cannot turn a later check into a 429.
-const SMOKE_REQUEST_BUDGET = 46;
+// the remainder (48) so those probes cannot turn a later check into a 429.
+const SMOKE_REQUEST_BUDGET = 47;
 let requests = 0;
 
 const API_SECURITY_HEADERS = [
@@ -129,6 +129,9 @@ assert.ok(Array.isArray(cows) && cows.includes("default"));
 assert.match(await (await request("/cows/default")).text(), /\(oo\)/);
 const tuxArt = await (await request("/cows/tux")).text();
 assert.ok(tuxArt.trim(), "tux artwork is empty");
+// `/cows/{name}` is the cowsay figure: `$thoughts` is `\`, not the asset slot.
+assert.doesNotMatch(tuxArt, /\uE000/, "tux still has the thoughts slot");
+assert.match(tuxArt, /^   \\\n    \\\n/m, "tux thoughts trail");
 const randomResponse = await request("/");
 assert.match(
   randomResponse.headers.get("content-type") || "",
@@ -239,10 +242,55 @@ for (const word of normalized.split(/\s+/)) {
   }
 }
 
+const cowthinkResponse = await request(
+  `/?format=cowthink&cow=tux&locale=en&category=${encodeURIComponent(category)}&fortune=${encodeURIComponent(categoryId)}`,
+);
+assert.equal(
+  cowthinkResponse.headers.get("content-type"),
+  "text/plain; charset=utf-8",
+  "cowthink content-type",
+);
+assert.match(
+  cowthinkResponse.headers.get("cache-control") || "",
+  /no-store/,
+  "cowthink cache-control",
+);
+assert.equal(cowthinkResponse.headers.get("x-fortune-id"), categoryId);
+const cowthinkBody = await cowthinkResponse.text();
+assert.ok(cowthinkBody.endsWith("\n"), "cowthink ends with a newline");
+const thinkTux = tux.replace(/^   \\\n    \\\n/, "   o\n    o\n");
+assert.notEqual(thinkTux, tux, "tux thoughts did not become o");
+assert.ok(
+  cowthinkBody.endsWith(`${thinkTux}\n`),
+  "cowthink ends with the tux thought trail",
+);
+const thinkLines = cowthinkBody.split("\n");
+assert.match(thinkLines[0], /^ _+$/, "cowthink top border");
+const thinkBottom = thinkLines.findIndex(
+  (line, index) => index > 0 && /^ -+$/.test(line),
+);
+assert.ok(thinkBottom > 1, "cowthink bottom border");
+for (const line of thinkLines.slice(1, thinkBottom)) {
+  assert.match(line, /^\(.*\)$/, `cowthink border ${JSON.stringify(line)}`);
+}
+const thinkBubble = cowthinkBody.slice(0, cowthinkBody.length - (thinkTux.length + 1));
+cursor = 0;
+for (const word of normalized.split(/\s+/)) {
+  let rest = word;
+  while (rest) {
+    const chars = Array.from(rest);
+    const chunk = chars.slice(0, 44).join("");
+    const at = thinkBubble.indexOf(chunk, cursor);
+    assert.ok(at !== -1, `cowthink missing ${JSON.stringify(chunk)}`);
+    cursor = at + chunk.length;
+    rest = chars.slice(44).join("");
+  }
+}
+
 await request("/?fortune=not-a-fortune", 400);
 // Unknown ids, duplicate parameters, and /og.png query errors stay covered by
 // the worker unit tests. Those smoke requests were traded for the length
-// checks so this script stays inside the 46-request rate-limit budget.
+// checks so this script stays inside the rate-limit budget.
 const shortResponse = await request("/?length=short");
 assert.match(
   shortResponse.headers.get("content-type") || "",

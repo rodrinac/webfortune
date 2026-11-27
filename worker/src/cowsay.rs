@@ -1,36 +1,71 @@
-//! Speech bubbles for `GET /?format=cowsay`.
+//! Speech and thought bubbles for `GET /?format=cowsay` and `format=cowthink`.
 //!
-//! Wrapping and borders follow `web/cowsay.js`. Characters other than tab and
-//! newline in the C0 control range are dropped, tabs expand to four spaces,
-//! and words then wrap on Unicode scalar values. One line uses `< >`. Several
-//! lines use `/ \`, `| |`, and `\ /`.
+//! Wrapping and the speech-bubble borders follow `web/cowsay.js`. Characters
+//! other than tab and newline in the C0 control range are dropped, tabs expand
+//! to four spaces, and words then wrap on Unicode scalar values. One speech
+//! line uses `< >`. Several speech lines use `/ \`, `| |`, and `\ /`. A
+//! thought bubble uses `(` and `)` on every line, including a single line.
+//! Top and bottom borders stay the same.
 
-/// Default wrap width of `web/cowsay.js`.
+/// Default wrap width of `web/cowsay.js` and of cowthink here.
 pub const WRAP_WIDTH: usize = 44;
 
-/// Bubble plus cow artwork, without a trailing newline. `web/cowsay.js` joins
-/// the same way; the HTTP body adds the final newline.
+/// Placeholder for the `$thoughts` slot in generated cow assets.
+///
+/// `scripts/generate-worker-assets.mjs` writes this same character
+/// (`THOUGHTS_SLOT`, U+E000) where a cow file interpolates `$thoughts`.
+/// Cowsay fills it with `\`. Cowthink fills it with `o`. Backslashes that
+/// belong to the figure itself are already resolved and are left alone.
+pub const THOUGHTS_SLOT: char = '\u{E000}';
+
+/// Replace [`THOUGHTS_SLOT`] in cow artwork. A figure with no slot is unchanged.
+pub fn with_thoughts(artwork: &str, thoughts: &str) -> String {
+    artwork.replace(THOUGHTS_SLOT, thoughts)
+}
+
+/// Speech bubble plus cow artwork, without a trailing newline. `web/cowsay.js`
+/// joins the same way; the HTTP body adds the final newline. The `$thoughts`
+/// slot is drawn as `\`.
 pub fn render(text: &str, width: usize, artwork: &str) -> String {
+    draw(text, width, artwork, false)
+}
+
+/// Thought bubble plus cow artwork, without a trailing newline. Borders follow
+/// cowthink(1): `(` and `)` on every line, with the same top and bottom rules
+/// and wrap width as [`render`]. The `$thoughts` slot is drawn as `o`.
+pub fn render_think(text: &str, width: usize, artwork: &str) -> String {
+    draw(text, width, artwork, true)
+}
+
+fn draw(text: &str, width: usize, artwork: &str, thought: bool) -> String {
+    let artwork = with_thoughts(artwork, if thought { "o" } else { "\\" });
     let lines = wrap_fortune(text, width);
     let size = lines.iter().map(|line| char_len(line)).max().unwrap_or(0);
     let mut out = Vec::with_capacity(lines.len() + 3);
     out.push(format!(" {}", "_".repeat(size + 2)));
     for (index, line) in lines.iter().enumerate() {
-        let (left, right) = if lines.len() == 1 {
-            ('<', '>')
-        } else if index == 0 {
-            ('/', '\\')
-        } else if index + 1 == lines.len() {
-            ('\\', '/')
-        } else {
-            ('|', '|')
-        };
+        let (left, right) = balloon_borders(thought, lines.len(), index);
         let pad = " ".repeat(size - char_len(line));
         out.push(format!("{left} {line}{pad} {right}"));
     }
     out.push(format!(" {}", "-".repeat(size + 2)));
-    out.push(artwork.to_string());
+    out.push(artwork);
     out.join("\n")
+}
+
+fn balloon_borders(thought: bool, lines: usize, index: usize) -> (char, char) {
+    if thought {
+        return ('(', ')');
+    }
+    if lines == 1 {
+        ('<', '>')
+    } else if index == 0 {
+        ('/', '\\')
+    } else if index + 1 == lines {
+        ('\\', '/')
+    } else {
+        ('|', '|')
+    }
 }
 
 pub fn wrap_fortune(text: &str, width: usize) -> Vec<String> {
@@ -202,5 +237,90 @@ mod tests {
         assert!(rendered.ends_with(dragon));
         assert!(rendered.contains("< Roar. >"));
         assert!(!rendered.contains("(oo)"));
+    }
+
+    #[test]
+    fn thought_bubbles_use_parentheses_on_every_line() {
+        let moo = render_think("Moo.", WRAP_WIDTH, "COW");
+        assert_eq!(
+            moo.lines().collect::<Vec<_>>(),
+            [" ______", "( Moo. )", " ------", "COW"]
+        );
+        assert!(!moo.contains('<'));
+        assert!(!moo.contains('>'));
+
+        let wrapped = render_think("A little wisdom for a little cow.", 15, "ART");
+        assert_eq!(
+            wrapped.lines().collect::<Vec<_>>(),
+            [
+                " _________________",
+                "( A little wisdom )",
+                "( for a little    )",
+                "( cow.            )",
+                " -----------------",
+                "ART",
+            ]
+        );
+        let lines: Vec<&str> = wrapped.lines().collect();
+        assert_eq!(lines[1].chars().count(), lines[2].chars().count());
+        assert_eq!(lines[2].chars().count(), lines[3].chars().count());
+
+        assert_eq!(
+            render_think(
+                "The quick brown fox jumps over the lazy dog again and again.",
+                WRAP_WIDTH,
+                "COW"
+            )
+            .lines()
+            .collect::<Vec<_>>(),
+            [
+                " _____________________________________________",
+                "( The quick brown fox jumps over the lazy dog )",
+                "( again and again.                            )",
+                " ---------------------------------------------",
+                "COW",
+            ]
+        );
+        assert_eq!(
+            render_think("", WRAP_WIDTH, "COW")
+                .lines()
+                .collect::<Vec<_>>(),
+            [" __", "(  )", " --", "COW"]
+        );
+    }
+
+    #[test]
+    fn thoughts_slot_is_a_backslash_for_cowsay_and_o_for_cowthink() {
+        let slotted =
+            format!("        {THOUGHTS_SLOT}   ^__^\n         {THOUGHTS_SLOT}  (oo)\\_______");
+        let spoken = render("Hi", WRAP_WIDTH, &slotted);
+        assert!(spoken.contains("< Hi >"));
+        assert!(spoken.contains("        \\   ^__^"));
+        assert!(spoken.contains("         \\  (oo)\\_______"));
+        assert!(!spoken.contains(THOUGHTS_SLOT));
+
+        let thought = render_think("Hi", WRAP_WIDTH, &slotted);
+        assert!(thought.contains("( Hi )"));
+        assert!(thought.contains("        o   ^__^"));
+        assert!(thought.contains("         o  (oo)\\_______"));
+        assert!(!thought.contains(THOUGHTS_SLOT));
+        assert!(!thought.contains('<'));
+
+        // A figure that already has `\` is what cowsay stored before the slot.
+        // Speech rendering of the slot matches that figure exactly.
+        let baked = "        \\   ^__^\n         \\  (oo)\\_______";
+        assert_eq!(
+            render("Hi", WRAP_WIDTH, &slotted),
+            render("Hi", WRAP_WIDTH, baked)
+        );
+
+        // Body backslashes stay backslashes. Only the `$thoughts` slot moves.
+        // suse.cow glues the slot to `____`; bunny.cow has literal tails.
+        let suse = format!("  {THOUGHTS_SLOT}\n   {THOUGHTS_SLOT}____");
+        assert!(render("Hi", WRAP_WIDTH, &suse).ends_with("  \\\n   \\____"));
+        assert!(render_think("Hi", WRAP_WIDTH, &suse).ends_with("  o\n   o____"));
+        let bunny = format!("  {THOUGHTS_SLOT}\n   {THOUGHTS_SLOT}   \\\n        \\ /\\");
+        assert!(render("Hi", WRAP_WIDTH, &bunny).ends_with("  \\\n   \\   \\\n        \\ /\\"));
+        assert!(render_think("Hi", WRAP_WIDTH, &bunny).ends_with("  o\n   o   \\\n        \\ /\\"));
     }
 }

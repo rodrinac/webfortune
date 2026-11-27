@@ -2,7 +2,7 @@
 //!
 //! `html-security-headers.txt` is the only copy of the HTML policy. The Vite
 //! dev and preview servers read that same file, so the Playwright run
-//! exercises the headers the Worker sends. API text, JSON, cowsay, error,
+//! exercises the headers the Worker sends. API text, JSON, cowsay, cowthink, error,
 //! 405, OPTIONS, and `/og.png` responses share [`API_SECURITY_HEADERS`], which
 //! includes [`STRICT_TRANSPORT_SECURITY`].
 //!
@@ -18,7 +18,7 @@ use std::fmt;
 /// deliberate follow-up.
 pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=31536000; includeSubDomains";
 
-/// Deny-all security headers sent on API responses (text, JSON, cowsay,
+/// Deny-all security headers sent on API responses (text, JSON, cowsay, cowthink,
 /// errors, 429, 405, OPTIONS 204, `/health`) and `/og.png`.
 ///
 /// Do not add `cross-origin-resource-policy: same-origin` here: the web app
