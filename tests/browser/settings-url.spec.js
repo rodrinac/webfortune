@@ -289,22 +289,26 @@ test("length picker filters fortunes and restores from the URL", async ({
 
   await page.goto("/?length=SHORT");
   await expect(page.locator("#length")).toHaveValue("");
-  expect(new URL(page.url()).search).toBe("");
+  // The address bar is rewritten after the cow artwork loads, so a one-shot
+  // read can still see the invalid query.
+  await expect.poll(() => page.evaluate(() => location.search)).toBe("");
 
   await page.goto("/?length=short&length=long");
   await expect(page.locator("#length")).toHaveValue("");
-  expect(new URL(page.url()).search).toBe("");
-  expect(fortuneRequests.at(-1)).toBe("?locale=en");
+  await expect.poll(() => page.evaluate(() => location.search)).toBe("");
+  await expect.poll(() => fortuneRequests.at(-1)).toBe("?locale=en");
 
   await page.goto("/?length=long&length=long");
   await expect(page.locator("#length")).toHaveValue("");
-  expect(fortuneRequests.at(-1)).not.toContain("length=");
+  await expect.poll(() => fortuneRequests.at(-1)).not.toContain("length=");
 
   await page.goto("/?locale=pt&cow=tux&category=love&length=nope");
   await expect(page.locator("#length")).toHaveValue("");
   await expect(page.locator("#category")).toHaveValue("love");
-  expect(new URL(page.url()).search).toBe("?locale=pt&cow=tux&category=love");
-  expect(fortuneRequests.at(-1)).toBe("?locale=pt&category=love");
+  await expect
+    .poll(() => page.evaluate(() => location.search))
+    .toBe("?locale=pt&cow=tux&category=love");
+  await expect.poll(() => fortuneRequests.at(-1)).toBe("?locale=pt&category=love");
 });
 
 test("disables the length picker while a fortune is loading", async ({
